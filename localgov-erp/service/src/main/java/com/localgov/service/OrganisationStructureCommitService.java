@@ -1,0 +1,498 @@
+package com.localgov.service;
+
+import com.localgov.domain.model.OrganisationStructureImportStaging;
+import com.localgov.domain.model.OrganisationStructureValidationResolution;
+import com.localgov.repository.OrganisationStructureImportStagingRepository;
+import com.localgov.repository.OrganisationUnitRepository;
+import com.localgov.repository.PositionRepository;
+import com.localgov.repository.OrganisationStructureValidationResolutionRepository;
+import com.localgov.service.dto.CanonicalCommitDryRunResult;
+import com.localgov.service.dto.CanonicalCommitDryRunRow;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@Service
+@Transactional(readOnly = true)
+public class OrganisationStructureCommitService {
+
+    private static final String POSITION = "POSITION";
+
+    private static final String MATCHED = "MATCHED";
+    private static final String UNRESOLVED = "UNRESOLVED";
+    private static final String REJECTED = "REJECTED";
+
+    private static final String NEW_ENTITY = "NEW_ENTITY";
+
+    private static final String CREATE = "CREATE";
+    private static final String NO_CHANGE = "NO_CHANGE";
+    private static final String HOLD_REVIEW = "HOLD_REVIEW";
+    private static final String REJECT = "REJECT";
+
+    private static final String NONE = "NONE";
+    private static final String PARENT_EXISTS = "PARENT_EXISTS";
+    private static final String PARENT_TO_CREATE = "PARENT_TO_CREATE";
+    private static final String PARENT_UNRESOLVED = "PARENT_UNRESOLVED";
+
+    private final OrganisationStructureValidationResolutionRepository
+            resolutionRepository;
+
+    private final OrganisationStructureImportStagingRepository
+            stagingRepository;
+
+    private final OrganisationUnitRepository organisationUnitRepository;
+
+    private final PositionRepository positionRepository;
+
+    public OrganisationStructureCommitService(
+            OrganisationStructureValidationResolutionRepository resolutionRepository,
+            OrganisationStructureImportStagingRepository stagingRepository,
+            OrganisationUnitRepository organisationUnitRepository,
+            PositionRepository positionRepository
+    ) {
+        this.resolutionRepository = resolutionRepository;
+        this.stagingRepository = stagingRepository;
+        this.organisationUnitRepository = organisationUnitRepository;
+        this.positionRepository = positionRepository;
+    }
+
+    public CommitSummary commit(Long batchId) {
+        if (batchId == null) {
+            throw new IllegalArgumentException("batchId is required");
+        }
+
+        List<OrganisationStructureValidationResolution> resolutions =
+                resolutionRepository.findByBatchIdOrderByIdAsc(batchId);
+
+        List<OrganisationStructureImportStaging> stagingRows =
+                stagingRepository.findByBatchIdOrderByIdAsc(batchId);
+
+        Map<Long, OrganisationStructureImportStaging> stagingById =
+                new HashMap<>();
+
+        for (OrganisationStructureImportStaging staging : stagingRows) {
+            stagingById.put(staging.getId(), staging);
+        }
+
+        Map<String, OrganisationStructureValidationResolution> resolutionByReference =
+                new HashMap<>();
+
+        for (OrganisationStructureValidationResolution resolution : resolutions) {
+            String reference = normalize(
+                    resolution.getSourceRecordReference()
+            );
+
+            if (reference != null) {
+                resolutionByReference.put(reference, resolution);
+            }
+        }
+
+        int createCount = 0;
+        int noChangeCount = 0;
+        int holdReviewCount = 0;
+        int rejectCount = 0;
+
+        for (OrganisationStructureValidationResolution resolution : resolutions) {
+
+            OrganisationStructureImportStaging staging =
+                    stagingById.get(resolution.getStagingId());
+
+            String parentDependency =
+                    determineParentDependency(
+                            staging,
+                            resolutionByReference
+                    );
+
+            CommitDecision commitDecision =
+                    evaluateCommitDecision(
+                            resolution,
+                            staging,
+                            parentDependency
+                    );
+
+            switch (commitDecision.decision()) {
+                case CREATE -> createCount++;
+                case NO_CHANGE -> noChangeCount++;
+                case HOLD_REVIEW -> holdReviewCount++;
+                case REJECT -> rejectCount++;
+                default -> throw new IllegalStateException(
+                        "Unsupported commit decision: "
+                                + commitDecision.decision()
+                );
+            }
+        }
+
+        return new CommitSummary(
+                batchId,
+                resolutions.size(),
+                createCount,
+                noChangeCount,
+                holdReviewCount,
+                rejectCount,
+                0
+        );
+    }
+
+    public CanonicalCommitDryRunResult dryRun(Long batchId) {
+        if (batchId == null) {
+            throw new IllegalArgumentException("batchId is required");
+        }
+
+        List<OrganisationStructureValidationResolution> resolutions =
+                resolutionRepository.findByBatchIdOrderByIdAsc(batchId);
+
+        List<OrganisationStructureImportStaging> stagingRows =
+                stagingRepository.findByBatchIdOrderByIdAsc(batchId);
+
+        Map<Long, OrganisationStructureImportStaging> stagingById =
+                new HashMap<>();
+
+        for (OrganisationStructureImportStaging staging : stagingRows) {
+            stagingById.put(staging.getId(), staging);
+        }
+
+        Map<String, OrganisationStructureValidationResolution> resolutionByReference =
+                new HashMap<>();
+
+        for (OrganisationStructureValidationResolution resolution : resolutions) {
+            String reference = normalize(
+                    resolution.getSourceRecordReference()
+            );
+
+            if (reference != null) {
+                resolutionByReference.put(reference, resolution);
+            }
+        }
+
+        String authorityCode = determineAuthorityCode(stagingRows);
+
+        int createCount = 0;
+        int noChangeCount = 0;
+        int holdReviewCount = 0;
+        int rejectCount = 0;
+        int unitCreateCount = 0;
+        int positionCreateCount = 0;
+
+        List<CanonicalCommitDryRunRow> rows =
+                new java.util.ArrayList<>();
+
+        for (OrganisationStructureValidationResolution resolution : resolutions) {
+
+            OrganisationStructureImportStaging staging =
+                    stagingById.get(resolution.getStagingId());
+
+            String parentDependency =
+                    determineParentDependency(
+                            staging,
+                            resolutionByReference
+                    );
+
+            CommitDecision commitDecision =
+                    evaluateCommitDecision(
+                            resolution,
+                            staging,
+                            parentDependency
+                    );
+
+            String decision = commitDecision.decision();
+
+            String reason = commitDecision.reason();
+
+            if (CREATE.equals(decision)) {
+                createCount++;
+
+                if (POSITION.equals(
+                        normalize(resolution.getSourceNodeType()))) {
+                    positionCreateCount++;
+                } else {
+                    unitCreateCount++;
+                }
+            } else if (NO_CHANGE.equals(decision)) {
+                noChangeCount++;
+            } else if (HOLD_REVIEW.equals(decision)) {
+                holdReviewCount++;
+            } else if (REJECT.equals(decision)) {
+                rejectCount++;
+            }
+
+            rows.add(
+                    new CanonicalCommitDryRunRow(
+                            resolution.getStagingId(),
+                            resolution.getSourceRecordReference(),
+                            resolution.getSourceNodeType(),
+                            resolution.getEntityCode(),
+                            resolution.getEntityName(),
+                            resolution.getResolutionStatus(),
+                            resolution.getResolutionType(),
+                            decision,
+                            reason,
+                            resolution.getResolvedEntityId(),
+                            resolution.getResolvedParentEntityId(),
+                            parentDependency
+                    )
+            );
+        }
+
+        return new CanonicalCommitDryRunResult(
+                batchId,
+                authorityCode,
+                resolutions.size(),
+                createCount,
+                noChangeCount,
+                holdReviewCount,
+                rejectCount,
+                unitCreateCount,
+                positionCreateCount,
+                0,
+                rows
+        );
+    }
+
+    private CommitDecision evaluateCommitDecision(
+            OrganisationStructureValidationResolution resolution,
+            OrganisationStructureImportStaging staging,
+            String parentDependency
+    ) {
+        if (resolution == null) {
+            return new CommitDecision(
+                    REJECT,
+                    "Resolution record is missing."
+            );
+        }
+
+        String resolutionStatus =
+                normalize(resolution.getResolutionStatus());
+
+        String resolutionType =
+                normalize(resolution.getResolutionType());
+
+        if (REJECTED.equals(resolutionStatus)) {
+            return new CommitDecision(
+                    REJECT,
+                    "Resolution status is REJECTED."
+            );
+        }
+
+        String authorityCode =
+                staging == null
+                        ? null
+                        : normalize(staging.getAuthorityCode());
+
+        String entityCode =
+                normalize(resolution.getEntityCode());
+
+        String sourceNodeType =
+                normalize(resolution.getSourceNodeType());
+
+        if (authorityCode == null || entityCode == null) {
+            return new CommitDecision(
+                    HOLD_REVIEW,
+                    "Authority code and entity code are required."
+            );
+        }
+
+        if (POSITION.equals(sourceNodeType)) {
+            var canonicalPosition =
+                    positionRepository.findByAuthorityCodeAndPositionCode(
+                            authorityCode,
+                            entityCode
+                    );
+
+            if (MATCHED.equals(resolutionStatus)) {
+                if (canonicalPosition.isPresent()
+                        && canonicalPosition.get().getId()
+                        .equals(resolution.getResolvedEntityId())) {
+                    return new CommitDecision(
+                            NO_CHANGE,
+                            "Canonical entity already resolved and matched."
+                    );
+                }
+
+                return new CommitDecision(
+                        HOLD_REVIEW,
+                        "Matched position does not resolve to the expected canonical entity."
+                );
+            }
+
+            if (UNRESOLVED.equals(resolutionStatus)
+                    && NEW_ENTITY.equals(resolutionType)) {
+
+                if (canonicalPosition.isPresent()) {
+                    return new CommitDecision(
+                            HOLD_REVIEW,
+                            "Canonical position already exists for the supplied code."
+                    );
+                }
+
+                if (PARENT_UNRESOLVED.equals(parentDependency)) {
+                    return new CommitDecision(
+                            HOLD_REVIEW,
+                            "Parent dependency is unresolved."
+                    );
+                }
+
+                return new CommitDecision(
+                        CREATE,
+                        determineCreateReason(parentDependency)
+                );
+            }
+
+            return new CommitDecision(
+                    HOLD_REVIEW,
+                    "Resolution requires review before canonical commit."
+            );
+        }
+
+        var canonicalUnit =
+                organisationUnitRepository.findByAuthorityCodeAndUnitCode(
+                        authorityCode,
+                        entityCode
+                );
+
+        if (MATCHED.equals(resolutionStatus)) {
+            if (canonicalUnit.isPresent()
+                    && canonicalUnit.get().getId()
+                    .equals(resolution.getResolvedEntityId())) {
+                return new CommitDecision(
+                        NO_CHANGE,
+                        "Canonical entity already resolved and matched."
+                );
+            }
+
+            return new CommitDecision(
+                    HOLD_REVIEW,
+                    "Matched organisation unit does not resolve to the expected canonical entity."
+            );
+        }
+
+        if (UNRESOLVED.equals(resolutionStatus)
+                && NEW_ENTITY.equals(resolutionType)) {
+
+            if (canonicalUnit.isPresent()) {
+                return new CommitDecision(
+                        HOLD_REVIEW,
+                        "Canonical organisation unit already exists for the supplied code."
+                );
+            }
+
+            if (PARENT_UNRESOLVED.equals(parentDependency)) {
+                return new CommitDecision(
+                        HOLD_REVIEW,
+                        "Parent dependency is unresolved."
+                );
+            }
+
+            return new CommitDecision(
+                    CREATE,
+                    determineCreateReason(parentDependency)
+            );
+        }
+
+        return new CommitDecision(
+                HOLD_REVIEW,
+                "Resolution requires review before canonical commit."
+        );
+    }
+
+    private String determineCreateReason(String parentDependency) {
+        if (PARENT_TO_CREATE.equals(parentDependency)) {
+            return "New entity can be created after its parent.";
+        }
+
+        if (PARENT_EXISTS.equals(parentDependency)) {
+            return "New entity can be created under an existing parent.";
+        }
+
+        if (NONE.equals(parentDependency)) {
+            return "New root entity can be created.";
+        }
+
+        return "New entity can be created.";
+    }
+
+    private String determineParentDependency(
+            OrganisationStructureImportStaging staging,
+            Map<String, OrganisationStructureValidationResolution>
+                    resolutionByReference
+    ) {
+        if (staging == null) {
+            return PARENT_UNRESOLVED;
+        }
+
+        String parentReference =
+                normalize(staging.getParentSourceReference());
+
+        if (parentReference == null) {
+            return NONE;
+        }
+
+        OrganisationStructureValidationResolution parent =
+                resolutionByReference.get(parentReference);
+
+        if (parent == null) {
+            return PARENT_UNRESOLVED;
+        }
+
+        String parentStatus =
+                normalize(parent.getResolutionStatus());
+
+        String parentType =
+                normalize(parent.getResolutionType());
+
+        if (MATCHED.equals(parentStatus)) {
+            return PARENT_EXISTS;
+        }
+
+        if (UNRESOLVED.equals(parentStatus)
+                && NEW_ENTITY.equals(parentType)) {
+            return PARENT_TO_CREATE;
+        }
+
+        return PARENT_UNRESOLVED;
+    }
+
+    private String determineAuthorityCode(
+            List<OrganisationStructureImportStaging> stagingRows
+    ) {
+        for (OrganisationStructureImportStaging staging : stagingRows) {
+            String authorityCode =
+                    normalize(staging.getAuthorityCode());
+
+            if (authorityCode != null) {
+                return authorityCode;
+            }
+        }
+
+        return null;
+    }
+
+    private String normalize(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private record CommitDecision(
+            String decision,
+            String reason
+    ) {
+    }
+
+    public record CommitSummary(
+            Long batchId,
+            int totalRecords,
+            int createCount,
+            int noChangeCount,
+            int holdReviewCount,
+            int rejectCount,
+            int writeCount
+    ) {
+    }
+}
