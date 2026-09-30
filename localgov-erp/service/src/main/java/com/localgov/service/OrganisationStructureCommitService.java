@@ -47,16 +47,21 @@ public class OrganisationStructureCommitService {
 
     private final PositionRepository positionRepository;
 
+    private final OrganisationStructureCanonicalCommitDecisionService
+            decisionService;
+
     public OrganisationStructureCommitService(
             OrganisationStructureValidationResolutionRepository resolutionRepository,
             OrganisationStructureImportStagingRepository stagingRepository,
             OrganisationUnitRepository organisationUnitRepository,
-            PositionRepository positionRepository
+            PositionRepository positionRepository,
+            OrganisationStructureCanonicalCommitDecisionService decisionService
     ) {
         this.resolutionRepository = resolutionRepository;
         this.stagingRepository = stagingRepository;
         this.organisationUnitRepository = organisationUnitRepository;
         this.positionRepository = positionRepository;
+        this.decisionService = decisionService;
     }
 
     public CommitSummary commit(Long batchId) {
@@ -106,8 +111,8 @@ public class OrganisationStructureCommitService {
                             resolutionByReference
                     );
 
-            CommitDecision commitDecision =
-                    evaluateCommitDecision(
+            OrganisationStructureCanonicalCommitDecisionService.CommitDecision commitDecision =
+                    decisionService.evaluate(
                             resolution,
                             staging,
                             parentDependency
@@ -190,8 +195,8 @@ public class OrganisationStructureCommitService {
                             resolutionByReference
                     );
 
-            CommitDecision commitDecision =
-                    evaluateCommitDecision(
+            OrganisationStructureCanonicalCommitDecisionService.CommitDecision commitDecision =
+                    decisionService.evaluate(
                             resolution,
                             staging,
                             parentDependency
@@ -249,168 +254,6 @@ public class OrganisationStructureCommitService {
                 0,
                 rows
         );
-    }
-
-    private CommitDecision evaluateCommitDecision(
-            OrganisationStructureValidationResolution resolution,
-            OrganisationStructureImportStaging staging,
-            String parentDependency
-    ) {
-        if (resolution == null) {
-            return new CommitDecision(
-                    REJECT,
-                    "Resolution record is missing."
-            );
-        }
-
-        String resolutionStatus =
-                normalize(resolution.getResolutionStatus());
-
-        String resolutionType =
-                normalize(resolution.getResolutionType());
-
-        if (REJECTED.equals(resolutionStatus)) {
-            return new CommitDecision(
-                    REJECT,
-                    "Resolution status is REJECTED."
-            );
-        }
-
-        String authorityCode =
-                staging == null
-                        ? null
-                        : normalize(staging.getAuthorityCode());
-
-        String entityCode =
-                normalize(resolution.getEntityCode());
-
-        String sourceNodeType =
-                normalize(resolution.getSourceNodeType());
-
-        if (authorityCode == null || entityCode == null) {
-            return new CommitDecision(
-                    HOLD_REVIEW,
-                    "Authority code and entity code are required."
-            );
-        }
-
-        if (POSITION.equals(sourceNodeType)) {
-            var canonicalPosition =
-                    positionRepository.findByAuthorityCodeAndPositionCode(
-                            authorityCode,
-                            entityCode
-                    );
-
-            if (MATCHED.equals(resolutionStatus)) {
-                if (canonicalPosition.isPresent()
-                        && canonicalPosition.get().getId()
-                        .equals(resolution.getResolvedEntityId())) {
-                    return new CommitDecision(
-                            NO_CHANGE,
-                            "Canonical entity already resolved and matched."
-                    );
-                }
-
-                return new CommitDecision(
-                        HOLD_REVIEW,
-                        "Matched position does not resolve to the expected canonical entity."
-                );
-            }
-
-            if (UNRESOLVED.equals(resolutionStatus)
-                    && NEW_ENTITY.equals(resolutionType)) {
-
-                if (canonicalPosition.isPresent()) {
-                    return new CommitDecision(
-                            HOLD_REVIEW,
-                            "Canonical position already exists for the supplied code."
-                    );
-                }
-
-                if (PARENT_UNRESOLVED.equals(parentDependency)) {
-                    return new CommitDecision(
-                            HOLD_REVIEW,
-                            "Parent dependency is unresolved."
-                    );
-                }
-
-                return new CommitDecision(
-                        CREATE,
-                        determineCreateReason(parentDependency)
-                );
-            }
-
-            return new CommitDecision(
-                    HOLD_REVIEW,
-                    "Resolution requires review before canonical commit."
-            );
-        }
-
-        var canonicalUnit =
-                organisationUnitRepository.findByAuthorityCodeAndUnitCode(
-                        authorityCode,
-                        entityCode
-                );
-
-        if (MATCHED.equals(resolutionStatus)) {
-            if (canonicalUnit.isPresent()
-                    && canonicalUnit.get().getId()
-                    .equals(resolution.getResolvedEntityId())) {
-                return new CommitDecision(
-                        NO_CHANGE,
-                        "Canonical entity already resolved and matched."
-                );
-            }
-
-            return new CommitDecision(
-                    HOLD_REVIEW,
-                    "Matched organisation unit does not resolve to the expected canonical entity."
-            );
-        }
-
-        if (UNRESOLVED.equals(resolutionStatus)
-                && NEW_ENTITY.equals(resolutionType)) {
-
-            if (canonicalUnit.isPresent()) {
-                return new CommitDecision(
-                        HOLD_REVIEW,
-                        "Canonical organisation unit already exists for the supplied code."
-                );
-            }
-
-            if (PARENT_UNRESOLVED.equals(parentDependency)) {
-                return new CommitDecision(
-                        HOLD_REVIEW,
-                        "Parent dependency is unresolved."
-                );
-            }
-
-            return new CommitDecision(
-                    CREATE,
-                    determineCreateReason(parentDependency)
-            );
-        }
-
-        return new CommitDecision(
-                HOLD_REVIEW,
-                "Resolution requires review before canonical commit."
-        );
-    }
-
-    private String determineCreateReason(String parentDependency) {
-        if (PARENT_TO_CREATE.equals(parentDependency)) {
-            return "New entity can be created after its parent.";
-        }
-
-        if (PARENT_EXISTS.equals(parentDependency)) {
-            return "New entity can be created under an existing parent.";
-        }
-
-        if (NONE.equals(parentDependency)) {
-            return "New root entity can be created.";
-        }
-
-        return "New entity can be created.";
     }
 
     private String determineParentDependency(
@@ -477,12 +320,6 @@ public class OrganisationStructureCommitService {
         String trimmed = value.trim();
 
         return trimmed.isEmpty() ? null : trimmed;
-    }
-
-    private record CommitDecision(
-            String decision,
-            String reason
-    ) {
     }
 
     public record CommitSummary(

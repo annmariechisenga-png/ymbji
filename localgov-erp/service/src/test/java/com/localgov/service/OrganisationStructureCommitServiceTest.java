@@ -10,6 +10,7 @@ import com.localgov.repository.PositionRepository;
 import com.localgov.domain.model.OrganisationUnit;
 import com.localgov.domain.model.Position;
 import com.localgov.repository.OrganisationStructureValidationResolutionRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -42,6 +43,17 @@ class OrganisationStructureCommitServiceTest {
 
     @Mock
     private PositionRepository positionRepository;
+
+    private OrganisationStructureCanonicalCommitDecisionService decisionService;
+
+    @BeforeEach
+    void setUp() {
+        decisionService =
+                new OrganisationStructureCanonicalCommitDecisionService(
+                        organisationUnitRepository,
+                        positionRepository
+                );
+    }
 
     @Test
     void shouldClassifyResolutionResultsWithoutWritingCanonicalRecords() {
@@ -130,7 +142,8 @@ class OrganisationStructureCommitServiceTest {
                         resolutionRepository,
                         stagingRepository,
                         organisationUnitRepository,
-                        positionRepository
+                        positionRepository,
+                        decisionService
                 );
 
         OrganisationStructureCommitService.CommitSummary summary =
@@ -327,7 +340,8 @@ class OrganisationStructureCommitServiceTest {
                         resolutionRepository,
                         stagingRepository,
                         organisationUnitRepository,
-                        positionRepository
+                        positionRepository,
+                        decisionService
                 );
 
         CanonicalCommitDryRunResult result =
@@ -404,13 +418,306 @@ class OrganisationStructureCommitServiceTest {
     }
 
     @Test
+    void shouldCreateNewRootOrganisationUnitWithoutEntityCode() {
+        OrganisationStructureValidationResolution resolution =
+                resolution(
+                        205L,
+                        "STG-DEPT-ENGINEERING",
+                        "UNRESOLVED",
+                        "NEW_ENTITY",
+                        "DEPARTMENT"
+                );
+
+        resolution.setEntityCode(null);
+
+        OrganisationStructureImportStaging staging =
+                stagingWithDetails(
+                        205L,
+                        "ZM09-CHL",
+                        null,
+                        null
+                );
+
+        when(resolutionRepository.findByBatchIdOrderByIdAsc(405L))
+                .thenReturn(List.of(resolution));
+
+        when(stagingRepository.findByBatchIdOrderByIdAsc(405L))
+                .thenReturn(List.of(staging));
+
+        OrganisationStructureCommitService service =
+                new OrganisationStructureCommitService(
+                        resolutionRepository,
+                        stagingRepository,
+                        organisationUnitRepository,
+                        positionRepository,
+                        decisionService
+                );
+
+        CanonicalCommitDryRunResult result =
+                service.dryRun(405L);
+
+        CanonicalCommitDryRunRow row =
+                result.rows().get(0);
+
+        assertEquals(1, result.createCount());
+        assertEquals(1, result.unitCreateCount());
+        assertEquals(0, result.holdReviewCount());
+
+        assertEquals("CREATE", row.commitDecision());
+        assertEquals("NONE", row.parentDependency());
+
+        verify(organisationUnitRepository, never())
+                .findByAuthorityCodeAndUnitCode(any(), any());
+
+        verify(positionRepository, never())
+                .findByAuthorityCodeAndPositionCode(any(), any());
+    }
+
+    @Test
+    void shouldCreateNewOrganisationUnitWithoutEntityCodeWhenParentIsNew() {
+        OrganisationStructureValidationResolution parent =
+                resolution(
+                        206L,
+                        "STG-DEPT-ENGINEERING",
+                        "UNRESOLVED",
+                        "NEW_ENTITY",
+                        "DEPARTMENT"
+                );
+
+        parent.setEntityCode(null);
+
+        OrganisationStructureValidationResolution child =
+                resolution(
+                        207L,
+                        "STG-UNIT-ENGINEERING",
+                        "UNRESOLVED",
+                        "NEW_ENTITY",
+                        "UNIT"
+                );
+
+        child.setEntityCode(null);
+
+        when(resolutionRepository.findByBatchIdOrderByIdAsc(406L))
+                .thenReturn(List.of(parent, child));
+
+        OrganisationStructureImportStaging parentStaging =
+                stagingWithDetails(
+                        206L,
+                        "ZM09-CHL",
+                        null,
+                        null
+                );
+
+        OrganisationStructureImportStaging childStaging =
+                stagingWithDetails(
+                        207L,
+                        "ZM09-CHL",
+                        null,
+                        "STG-DEPT-ENGINEERING"
+                );
+
+        when(stagingRepository.findByBatchIdOrderByIdAsc(406L))
+                .thenReturn(List.of(parentStaging, childStaging));
+
+        OrganisationStructureCommitService service =
+                new OrganisationStructureCommitService(
+                        resolutionRepository,
+                        stagingRepository,
+                        organisationUnitRepository,
+                        positionRepository,
+                        decisionService
+                );
+
+        CanonicalCommitDryRunResult result =
+                service.dryRun(406L);
+
+        assertEquals(2, result.createCount());
+        assertEquals(2, result.unitCreateCount());
+        assertEquals(0, result.holdReviewCount());
+
+        assertEquals(
+                "CREATE",
+                result.rows().get(0).commitDecision()
+        );
+
+        assertEquals(
+                "NONE",
+                result.rows().get(0).parentDependency()
+        );
+
+        assertEquals(
+                "CREATE",
+                result.rows().get(1).commitDecision()
+        );
+
+        assertEquals(
+                "PARENT_TO_CREATE",
+                result.rows().get(1).parentDependency()
+        );
+
+        verify(organisationUnitRepository, never())
+                .findByAuthorityCodeAndUnitCode(any(), any());
+
+        verify(positionRepository, never())
+                .findByAuthorityCodeAndPositionCode(any(), any());
+    }
+
+    @Test
+    void shouldCreateNewPositionWithoutEntityCodeWhenParentIsNew() {
+        OrganisationStructureValidationResolution parent =
+                resolution(
+                        208L,
+                        "STG-UNIT-ENGINEERING",
+                        "UNRESOLVED",
+                        "NEW_ENTITY",
+                        "UNIT"
+                );
+
+        parent.setEntityCode(null);
+
+        OrganisationStructureValidationResolution position =
+                resolution(
+                        209L,
+                        "TC-0001",
+                        "UNRESOLVED",
+                        "NEW_ENTITY",
+                        "POSITION"
+                );
+
+        position.setEntityCode(null);
+
+        when(resolutionRepository.findByBatchIdOrderByIdAsc(407L))
+                .thenReturn(List.of(parent, position));
+
+        OrganisationStructureImportStaging parentStaging =
+                stagingWithDetails(
+                        208L,
+                        "ZM09-CHL",
+                        null,
+                        null
+                );
+
+        OrganisationStructureImportStaging positionStaging =
+                stagingWithDetails(
+                        209L,
+                        "ZM09-CHL",
+                        null,
+                        "STG-UNIT-ENGINEERING"
+                );
+
+        when(stagingRepository.findByBatchIdOrderByIdAsc(407L))
+                .thenReturn(List.of(parentStaging, positionStaging));
+
+        OrganisationStructureCommitService service =
+                new OrganisationStructureCommitService(
+                        resolutionRepository,
+                        stagingRepository,
+                        organisationUnitRepository,
+                        positionRepository,
+                        decisionService
+                );
+
+        CanonicalCommitDryRunResult result =
+                service.dryRun(407L);
+
+        assertEquals(2, result.createCount());
+        assertEquals(1, result.unitCreateCount());
+        assertEquals(1, result.positionCreateCount());
+        assertEquals(0, result.holdReviewCount());
+
+        assertEquals(
+                "CREATE",
+                result.rows().get(0).commitDecision()
+        );
+
+        assertEquals(
+                "CREATE",
+                result.rows().get(1).commitDecision()
+        );
+
+        assertEquals(
+                "PARENT_TO_CREATE",
+                result.rows().get(1).parentDependency()
+        );
+
+        verify(organisationUnitRepository, never())
+                .findByAuthorityCodeAndUnitCode(any(), any());
+
+        verify(positionRepository, never())
+                .findByAuthorityCodeAndPositionCode(any(), any());
+    }
+
+    @Test
+    void shouldHoldNewEntityWithoutEntityCodeWhenParentIsUnresolved() {
+        OrganisationStructureValidationResolution resolution =
+                resolution(
+                        210L,
+                        "STG-UNIT-ORPHAN",
+                        "UNRESOLVED",
+                        "NEW_ENTITY",
+                        "UNIT"
+                );
+
+        resolution.setEntityCode(null);
+
+        OrganisationStructureImportStaging staging =
+                stagingWithDetails(
+                        210L,
+                        "ZM09-CHL",
+                        null,
+                        "STG-MISSING-PARENT"
+                );
+
+        when(resolutionRepository.findByBatchIdOrderByIdAsc(408L))
+                .thenReturn(List.of(resolution));
+
+        when(stagingRepository.findByBatchIdOrderByIdAsc(408L))
+                .thenReturn(List.of(staging));
+
+        OrganisationStructureCommitService service =
+                new OrganisationStructureCommitService(
+                        resolutionRepository,
+                        stagingRepository,
+                        organisationUnitRepository,
+                        positionRepository,
+                        decisionService
+                );
+
+        CanonicalCommitDryRunResult result =
+                service.dryRun(408L);
+
+        CanonicalCommitDryRunRow row =
+                result.rows().get(0);
+
+        assertEquals(0, result.createCount());
+        assertEquals(1, result.holdReviewCount());
+
+        assertEquals(
+                "HOLD_REVIEW",
+                row.commitDecision()
+        );
+
+        assertEquals(
+                "PARENT_UNRESOLVED",
+                row.parentDependency()
+        );
+
+        verify(organisationUnitRepository, never())
+                .findByAuthorityCodeAndUnitCode(any(), any());
+
+        verify(positionRepository, never())
+                .findByAuthorityCodeAndPositionCode(any(), any());
+    }
+
+    @Test
     void shouldHoldMatchedPositionWhenCanonicalPositionIdDiffers() {
         OrganisationStructureCommitService service =
                 new OrganisationStructureCommitService(
                         resolutionRepository,
                         stagingRepository,
                         organisationUnitRepository,
-                        positionRepository
+                        positionRepository,
+                        decisionService
                 );
 
         OrganisationStructureValidationResolution resolution =
@@ -488,7 +795,8 @@ class OrganisationStructureCommitServiceTest {
                         resolutionRepository,
                         stagingRepository,
                         organisationUnitRepository,
-                        positionRepository
+                        positionRepository,
+                        decisionService
                 );
 
         OrganisationStructureValidationResolution resolution =
@@ -552,7 +860,8 @@ class OrganisationStructureCommitServiceTest {
                         resolutionRepository,
                         stagingRepository,
                         organisationUnitRepository,
-                        positionRepository
+                        positionRepository,
+                        decisionService
                 );
 
         assertThrows(
@@ -568,7 +877,8 @@ class OrganisationStructureCommitServiceTest {
                         resolutionRepository,
                         stagingRepository,
                         organisationUnitRepository,
-                        positionRepository
+                        positionRepository,
+                        decisionService
                 );
 
         assertThrows(
@@ -605,7 +915,8 @@ class OrganisationStructureCommitServiceTest {
                         resolutionRepository,
                         stagingRepository,
                         organisationUnitRepository,
-                        positionRepository
+                        positionRepository,
+                        decisionService
                 );
 
         OrganisationStructureValidationResolution resolution =
@@ -817,7 +1128,8 @@ class OrganisationStructureCommitServiceTest {
                         resolutionRepository,
                         stagingRepository,
                         organisationUnitRepository,
-                        positionRepository
+                        positionRepository,
+                        decisionService
                 );
 
         CanonicalCommitDryRunResult absentResult =
