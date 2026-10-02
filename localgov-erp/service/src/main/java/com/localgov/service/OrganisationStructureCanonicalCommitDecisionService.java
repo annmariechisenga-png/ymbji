@@ -261,13 +261,11 @@ public class OrganisationStructureCanonicalCommitDecisionService {
     }
 
     private String normalize(String value) {
-        if (value == null) {
+        if (value == null || value.isBlank()) {
             return null;
         }
 
-        String trimmed = value.trim();
-
-        return trimmed.isEmpty() ? null : trimmed;
+        return value.trim().toUpperCase();
     }
 
     public record CommitDecision(

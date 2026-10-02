@@ -137,10 +137,6 @@ public class OrganisationStructureResolutionService {
             return rejected("Source node type is missing.");
         }
 
-        if (entityCode == null) {
-            return rejected("Entity code is missing.");
-        }
-
         if (POSITION.equals(sourceNodeType)) {
             return resolvePosition(
                     staging,
@@ -167,6 +163,46 @@ public class OrganisationStructureResolutionService {
             String sourceRecordReference,
             Set<Long> resolving
     ) {
+        if (entityCode == null) {
+            String parentSourceReference =
+                    normalize(staging.getParentSourceReference());
+
+            if (parentSourceReference == null) {
+                return unresolved(
+                        NEW_ENTITY,
+                        "No canonical organisation unit exists yet; "
+                                + "staging record has no entity code.",
+                        null
+                );
+            }
+
+            ParentResolution parent =
+                    resolveParent(
+                            staging,
+                            parentSourceReference,
+                            resolving
+                    );
+
+            if (parent.status() != MATCHED) {
+                return new ResolutionResult(
+                        parent.status(),
+                        parent.resolutionType(),
+                        parent.resolutionMessage(),
+                        parent.discrepancyType(),
+                        parent.resolvedEntityId(),
+                        parent.resolvedParentEntityId()
+                );
+            }
+
+            return unresolved(
+                    NEW_ENTITY,
+                    "No canonical organisation unit exists yet; "
+                            + "entity code will be established during "
+                            + "canonical commit.",
+                    null
+            );
+        }
+
         Optional<OrganisationUnit> canonical =
                 organisationUnitRepository
                         .findByAuthorityCodeAndUnitCode(

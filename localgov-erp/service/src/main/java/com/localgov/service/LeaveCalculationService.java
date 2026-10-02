@@ -242,18 +242,51 @@ public class LeaveCalculationService {
         return switch (request.leaveType()) {
             case MATERNITY, PATERNITY -> {
                 Integer fixed = policy.getFixedDays();
-                if (fixed == null || fixed <= 0)
-                    throw new BusinessValidationException("No fixed_days configured for " + request.leaveType().getDisplayName());
-                yield fixed;
+                if (fixed == null || fixed <= 0) {
+                    throw new BusinessValidationException(
+                            "No fixed_days configured for " + request.leaveType().getDisplayName());
+                }
+                if (request.requestedDays() == null || request.requestedDays() <= 0) {
+                    throw new BusinessValidationException(
+                            "requested_days is required for " + request.leaveType().getDisplayName());
+                }
+                if (!request.requestedDays().equals(fixed)) {
+                    throw new BusinessValidationException(
+                            request.leaveType().getDisplayName()
+                                    + " must be requested for exactly " + fixed + " days.");
+                }
+                yield request.requestedDays();
             }
+
             case MOTHERS_DAY -> {
+                if (request.requestedDays() == null || request.requestedDays() <= 0) {
+                    throw new BusinessValidationException(
+                            "requested_days is required for Mother's Day Leave");
+                }
                 Integer monthly = policy.getMonthlyLimit();
-                yield monthly != null && monthly > 0 ? monthly : 1;
+                int maxDays = monthly != null && monthly > 0 ? monthly : 1;
+                if (request.requestedDays() > maxDays) {
+                    throw new BusinessValidationException(
+                            "Mother's Day Leave cannot exceed " + maxDays + " day"
+                                    + (maxDays == 1 ? "" : "s") + " per month.");
+                }
+                yield request.requestedDays();
             }
+
             case FAMILY_CARE -> {
+                if (request.requestedDays() == null || request.requestedDays() <= 0) {
+                    throw new BusinessValidationException(
+                            "requested_days is required for Family Care Leave");
+                }
                 Integer annual = policy.getAnnualLimit();
-                yield annual != null && annual > 0 ? annual : 3;
+                int maxDays = annual != null && annual > 0 ? annual : 3;
+                if (request.requestedDays() > maxDays) {
+                    throw new BusinessValidationException(
+                            "Family Care Leave cannot exceed " + maxDays + " days per request.");
+                }
+                yield request.requestedDays();
             }
+
             case COMPASSIONATE -> {
                 CompassionateLeaveRelation rel = request.compassionateRelation();
                 if (rel == null) throw new BusinessValidationException("Select whether the compassionate leave relates to a spouse, child, or parent.");
@@ -265,6 +298,7 @@ public class LeaveCalculationService {
                 }
                 yield rel == CompassionateLeaveRelation.SPOUSE ? safeInt(policy.getMaxDuration(), 21) : safeInt(policy.getFixedDays(), 14);
             }
+
             default -> {
                 if (request.requestedDays() == null || request.requestedDays() <= 0)
                     throw new BusinessValidationException("requested_days is required for " + request.leaveType().getDisplayName());

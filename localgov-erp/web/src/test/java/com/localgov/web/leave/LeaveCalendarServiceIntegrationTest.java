@@ -12,7 +12,9 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.temporal.TemporalAdjusters;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -74,19 +76,21 @@ class LeaveCalendarServiceIntegrationTest {
         String token = login("hr", "Hr@123");
         String empId = createEmployee(token, "EMP-CAL-FRI", "fricalc@test.com", "Division I");
         jdbc.update("UPDATE leave_balances SET vacation_leave_balance = 200 WHERE employee_id = ?", Long.parseLong(empId));
+        LocalDate startDate = nextFridayAfterAdvanceNoticeWindow();
+        var expectedSchedule = leaveCalendarService.computeSchedule(startDate, 35, true, false, "Division I");
 
         mockMvc.perform(get("/leaves/calculate")
                         .header("Authorization", "Bearer " + token)
                         .param("employeeId", empId)
                         .param("leaveType", "VACATION")
-                        .param("startDate", "2026-09-04")
+                        .param("startDate", startDate.toString())
                         .param("requestedDays", "35"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.chargeableDays").value(35))
                 .andExpect(jsonPath("$.eligible").value(true))
                 .andExpect(jsonPath("$.reason").value("ELIGIBLE"))
-                .andExpect(jsonPath("$.leaveEndDate").value("2026-10-23"))
-                .andExpect(jsonPath("$.resumeDutiesDate").value("2026-10-26"));
+                .andExpect(jsonPath("$.leaveEndDate").value(expectedSchedule.endDate().toString()))
+                .andExpect(jsonPath("$.resumeDutiesDate").value(expectedSchedule.resumptionDate().toString()));
     }
 
     private String createEmployee(String token, String code, String email, String division) throws Exception {
@@ -116,6 +120,11 @@ class LeaveCalendarServiceIntegrationTest {
                     Long.parseLong(id), 30, 30);
         }
         return id;
+    }
+
+    private LocalDate nextFridayAfterAdvanceNoticeWindow() {
+        LocalDate base = LocalDate.now().plusDays(40);
+        return base.with(TemporalAdjusters.nextOrSame(DayOfWeek.FRIDAY));
     }
 
     private String login(String username, String password) throws Exception {

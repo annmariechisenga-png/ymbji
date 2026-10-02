@@ -14,6 +14,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.temporal.TemporalAdjusters;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -105,13 +109,13 @@ class LeaveWorkflowIntegrationTest {
         String empId = createEmployee(token, "EMP-LOC-001", "local@test.com", "Division I");
         jdbc.update("UPDATE leave_balances SET local_leave_balance = 30 WHERE employee_id = ?",
                 Long.parseLong(empId));
-
+        LocalDate startDate = nextFutureWeekday(DayOfWeek.MONDAY);
         mockMvc.perform(post("/leaves")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"employeeId\":" + empId
                                 + ",\"leaveType\":\"LOCAL\""
-                                + ",\"startDate\":\"2026-08-03\",\"endDate\":\"2026-08-04\""
+                                + ",\"startDate\":\"" + startDate + "\",\"daysRequested\":2"
                                 + ",\"reason\":\"Family commitment\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.daysRequested").value(2))
@@ -132,8 +136,8 @@ class LeaveWorkflowIntegrationTest {
                         .header("Authorization", "Bearer " + token)
                         .param("employeeId", empId)
                         .param("leaveType", "PATERNITY")
-                        .param("startDate", "2026-07-01")
-                        .param("endDate", "2026-07-10")
+                        .param("startDate", LocalDate.now().plusDays(7).toString())
+                        .param("daysRequested", "10")
                         .param("reason", "New born child"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.daysRequested").value(10))
@@ -154,8 +158,8 @@ class LeaveWorkflowIntegrationTest {
                         .header("Authorization", "Bearer " + token)
                         .param("employeeId", empId)
                         .param("leaveType", "MATERNITY")
-                        .param("startDate", "2026-07-01")
-                        .param("endDate", "2026-10-06")
+                        .param("startDate", LocalDate.now().plusDays(7).toString())
+                        .param("daysRequested", "98")
                         .param("reason", "Maternity"))
                 .andExpect(status().isBadRequest());
     }
@@ -164,13 +168,15 @@ class LeaveWorkflowIntegrationTest {
     void familyCareLeaveIsLimitedToThreeDaysPerYear() throws Exception {
         String token = login("hr", "Hr@123");
         String empId = createEmployee(token, "EMP-FAM-001", "familycare@test.com", "Division III");
+        LocalDate firstStartDate = nextFutureWeekday(DayOfWeek.MONDAY);
+        LocalDate secondStartDate = firstStartDate.plusWeeks(4);
 
         mockMvc.perform(post("/leaves")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"employeeId\":" + empId
                                 + ",\"leaveType\":\"FAMILY_CARE\""
-                                + ",\"startDate\":\"2026-08-03\",\"endDate\":\"2026-08-05\""
+                                + ",\"startDate\":\"" + firstStartDate + "\",\"daysRequested\":3"
                                 + ",\"reason\":\"Family illness\"}"))
                 .andExpect(status().isCreated());
 
@@ -179,24 +185,56 @@ class LeaveWorkflowIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"employeeId\":" + empId
                                 + ",\"leaveType\":\"FAMILY_CARE\""
-                                + ",\"startDate\":\"2026-09-01\",\"endDate\":\"2026-09-03\""
+                                + ",\"startDate\":\"" + secondStartDate + "\",\"daysRequested\":3"
                                 + ",\"reason\":\"Another family care request\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(
-                        "Maximum Family Care leave (3 days) already reached for the current calendar year."));
+                        "Maximum Family Care leave (3 days) already reached for calendar year "
+                                + firstStartDate.getYear() + "."));
+    }
+
+    @Test
+    void familyCareAnnualLimitUsesLeaveYearNotApplicationYear() throws Exception {
+        String token = login("hr", "Hr@123");
+        String empId = createEmployee(token, "EMP-FAM-YEAR-001", "familycare-year@test.com", "Division III");
+
+        // Consume the full 3-day Family Care entitlement in 2026.
+        LocalDate leave2026Start = nextFutureWeekday(DayOfWeek.MONDAY);
+        mockMvc.perform(post("/leaves")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"employeeId\":" + empId
+                                + ",\"leaveType\":\"FAMILY_CARE\""
+                                + ",\"startDate\":\"" + leave2026Start + "\",\"daysRequested\":3"
+                                + ",\"reason\":\"Family care in 2026\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.daysRequested").value(3));
+
+        // The application is being made in 2026, but the requested leave is
+        // in 2027. The annual limit must therefore be evaluated for 2027.
+        LocalDate leave2027Start = LocalDate.of(2027, 1, 4);
+        mockMvc.perform(post("/leaves")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"employeeId\":" + empId
+                                + ",\"leaveType\":\"FAMILY_CARE\""
+                                + ",\"startDate\":\"" + leave2027Start + "\",\"daysRequested\":3"
+                                + ",\"reason\":\"Family care in 2027\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.daysRequested").value(3));
     }
 
     @Test
     void studyLeaveIsCreatedAndUsesCalendarDays() throws Exception {
         String token = login("hr", "Hr@123");
         String empId = createEmployee(token, "EMP-STD-001", "study@test.com", "Division II");
-
+        LocalDate startDate = LocalDate.now().plusDays(14);
         mockMvc.perform(post("/leaves")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"employeeId\":" + empId
                                 + ",\"leaveType\":\"STUDY\""
-                                + ",\"startDate\":\"2026-08-01\",\"endDate\":\"2026-08-07\""
+                                + ",\"startDate\":\"" + startDate + "\",\"daysRequested\":7"
                                 + ",\"reason\":\"Professional development course\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.daysRequested").value(7))
@@ -207,13 +245,13 @@ class LeaveWorkflowIntegrationTest {
     void sickLeaveUsesCalendarDaysAndIsConditionOfService() throws Exception {
         String token = login("hr", "Hr@123");
         String empId = createEmployee(token, "EMP-SICK-001", "sick@test.com", "Division I");
-
+        LocalDate startDate = LocalDate.now().plusDays(10);
         mockMvc.perform(post("/leaves")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"employeeId\":" + empId
                                 + ",\"leaveType\":\"SICK\""
-                                + ",\"startDate\":\"2026-09-01\",\"endDate\":\"2026-09-05\""
+                                + ",\"startDate\":\"" + startDate + "\",\"daysRequested\":5"
                                 + ",\"reason\":\"Medical illness\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.daysRequested").value(5))
@@ -226,13 +264,13 @@ class LeaveWorkflowIntegrationTest {
         String empId = createEmployee(token, "EMP-VAC-001", "vac@test.com", "Division II");
         jdbc.update("UPDATE leave_balances SET vacation_leave_balance = 30 WHERE employee_id = ?",
                 Long.parseLong(empId));
-
+        LocalDate startDate = LocalDate.now().plusDays(40);
         mockMvc.perform(post("/leaves")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"employeeId\":" + empId
                                 + ",\"leaveType\":\"VACATION\""
-                                + ",\"startDate\":\"2026-09-01\",\"endDate\":\"2026-09-05\""
+                                + ",\"startDate\":\"" + startDate + "\",\"daysRequested\":4"
                                 + ",\"reason\":\"Annual holiday\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.daysRequested").value(4))
@@ -252,6 +290,15 @@ class LeaveWorkflowIntegrationTest {
     }
 
     // ── helpers ────────────────────────────────────────────────────────────
+
+    private LocalDate nextFutureWeekday(DayOfWeek dayOfWeek) {
+        LocalDate today = LocalDate.now();
+        LocalDate candidate = today.with(TemporalAdjusters.nextOrSame(dayOfWeek));
+        if (!candidate.isAfter(today)) {
+            candidate = candidate.plusWeeks(1);
+        }
+        return candidate;
+    }
 
     private String createEmployee(String token, String code, String email, String division)
             throws Exception {

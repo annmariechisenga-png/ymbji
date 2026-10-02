@@ -61,6 +61,10 @@ public class OrganisationStructureCanonicalPositionEstablishmentCandidateFactory
                                 + sourceReference);
             }
 
+            if (record.establishmentQuantity() == 0) {
+                continue;
+            }
+
             candidates.add(
                     new CanonicalPositionEstablishmentCommitCandidate(
                             record.authorityCode(),

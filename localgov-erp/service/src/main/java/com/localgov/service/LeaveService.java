@@ -96,10 +96,6 @@ public class LeaveService {
         AuthenticatedUserContext caller = userContextResolver.resolve();
         leaveAccessValidator.validateSubmissionAccess(caller, request.employeeId());
 
-        if (request.endDate().isBefore(request.startDate())) {
-            throw new BusinessValidationException("Leave end date cannot be before start date.");
-        }
-
         if (documentData != null && documentData.length > 0) {
             validateDocument(documentName, documentContentType, documentData.length);
         }
@@ -115,8 +111,7 @@ public class LeaveService {
                     + request.leaveType().getDisplayName() + ".");
         }
 
-        int requestedDays = leaveCalculationService.resolveRequestedDaysForRange(
-                policy, request.startDate(), request.endDate(), employee.getDivision());
+        int requestedDays = request.daysRequested();
 
         LeaveCalculationRequest calcRequest = new LeaveCalculationRequest(
                 request.employeeId(), request.leaveType(), request.startDate(),
@@ -126,16 +121,17 @@ public class LeaveService {
 
         if (request.leaveType() == LeaveType.FAMILY_CARE) {
             int annualLimit = policy.getAnnualLimit() != null ? policy.getAnnualLimit() : 3;
+            int leaveYear = request.startDate().getYear();
             int usedThisYear = leaveRequestRepository.findByEmployeeIdOrderByCreatedAtDesc(employee.getId()).stream()
                     .filter(r -> r.getLeaveType() == LeaveType.FAMILY_CARE)
-                    .filter(r -> r.getStartDate() != null && r.getStartDate().getYear() == LocalDate.now().getYear())
+                    .filter(r -> r.getStartDate() != null && r.getStartDate().getYear() == leaveYear)
                     .filter(r -> r.getStatus() != LeaveStatus.CANCELLED)
                     .mapToInt(r -> r.getDaysRequested() != null ? r.getDaysRequested() : 0)
                     .sum();
             if (usedThisYear + calc.chargeableDays() > annualLimit) {
                 throw new BusinessValidationException(
                         "Maximum Family Care leave (" + annualLimit
-                        + " days) already reached for the current calendar year.");
+                        + " days) already reached for calendar year " + leaveYear + ".");
             }
         }
 
@@ -151,7 +147,7 @@ public class LeaveService {
         lr.setEndDate(calc.leaveEndDate());
         lr.setResumptionDate(calc.resumeDutiesDate());
         lr.setReason(request.reason());
-        lr.setDaysRequested(calc.chargeableDays());
+        lr.setDaysRequested(request.daysRequested());
         lr.setStatus(LeaveStatus.PENDING);
 
         if (documentData != null && documentData.length > 0) {

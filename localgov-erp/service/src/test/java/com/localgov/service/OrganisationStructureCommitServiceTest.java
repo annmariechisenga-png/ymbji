@@ -251,6 +251,8 @@ class OrganisationStructureCommitServiceTest {
                         "MATCHED"
                 );
 
+        when(childExistingStaging.getEstablishmentQuantity()).thenReturn(1);
+
         OrganisationStructureImportStaging childParentNewStaging =
                 stagingWithDetails(
                         3L,
@@ -345,7 +347,7 @@ class OrganisationStructureCommitServiceTest {
                 );
 
         CanonicalCommitDryRunResult result =
-                service.dryRun(200L);
+                service.dryRun(200L, 2023);
 
         assertEquals(200L, result.batchId());
         assertEquals("ZM09-LCC", result.authorityCode());
@@ -454,7 +456,7 @@ class OrganisationStructureCommitServiceTest {
                 );
 
         CanonicalCommitDryRunResult result =
-                service.dryRun(405L);
+                service.dryRun(405L, 2023);
 
         CanonicalCommitDryRunRow row =
                 result.rows().get(0);
@@ -529,7 +531,7 @@ class OrganisationStructureCommitServiceTest {
                 );
 
         CanonicalCommitDryRunResult result =
-                service.dryRun(406L);
+                service.dryRun(406L, 2023);
 
         assertEquals(2, result.createCount());
         assertEquals(2, result.unitCreateCount());
@@ -605,6 +607,8 @@ class OrganisationStructureCommitServiceTest {
                         "STG-UNIT-ENGINEERING"
                 );
 
+        when(positionStaging.getEstablishmentQuantity()).thenReturn(1);
+
         when(stagingRepository.findByBatchIdOrderByIdAsc(407L))
                 .thenReturn(List.of(parentStaging, positionStaging));
 
@@ -618,7 +622,7 @@ class OrganisationStructureCommitServiceTest {
                 );
 
         CanonicalCommitDryRunResult result =
-                service.dryRun(407L);
+                service.dryRun(407L, 2023);
 
         assertEquals(2, result.createCount());
         assertEquals(1, result.unitCreateCount());
@@ -684,7 +688,7 @@ class OrganisationStructureCommitServiceTest {
                 );
 
         CanonicalCommitDryRunResult result =
-                service.dryRun(408L);
+                service.dryRun(408L, 2023);
 
         CanonicalCommitDryRunRow row =
                 result.rows().get(0);
@@ -760,7 +764,7 @@ class OrganisationStructureCommitServiceTest {
                 .thenReturn(Optional.of(canonicalPosition));
 
         CanonicalCommitDryRunResult result =
-                service.dryRun(402L);
+                service.dryRun(402L, 2023);
 
         assertEquals(1, result.totalRecords());
         assertEquals(0, result.createCount());
@@ -825,7 +829,7 @@ class OrganisationStructureCommitServiceTest {
                 .thenReturn(List.of(staging));
 
         CanonicalCommitDryRunResult result =
-                service.dryRun(403L);
+                service.dryRun(403L, 2023);
 
         assertEquals(1, result.totalRecords());
         assertEquals(0, result.createCount());
@@ -883,7 +887,7 @@ class OrganisationStructureCommitServiceTest {
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> service.dryRun(null)
+                () -> service.dryRun(null, 2023)
         );
     }
 
@@ -957,7 +961,7 @@ class OrganisationStructureCommitServiceTest {
                 .thenReturn(Optional.of(existingPosition));
 
         CanonicalCommitDryRunResult result =
-                service.dryRun(401L);
+                service.dryRun(401L, 2023);
 
         assertEquals(1, result.totalRecords());
         assertEquals(0, result.createCount());
@@ -1133,16 +1137,16 @@ class OrganisationStructureCommitServiceTest {
                 );
 
         CanonicalCommitDryRunResult absentResult =
-                service.dryRun(301L);
+                service.dryRun(301L, 2023);
 
         CanonicalCommitDryRunResult collisionResult =
-                service.dryRun(302L);
+                service.dryRun(302L, 2023);
 
         CanonicalCommitDryRunResult matchedResult =
-                service.dryRun(303L);
+                service.dryRun(303L, 2023);
 
         CanonicalCommitDryRunResult missingResult =
-                service.dryRun(304L);
+                service.dryRun(304L, 2023);
 
         assertEquals(
                 "CREATE",

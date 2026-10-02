@@ -34,6 +34,9 @@ public class PositionEstablishment {
     @Column(name = "is_funded", nullable = false)
     private Boolean funded = false;
 
+    @Column(name = "is_frozen", nullable = false)
+    private Boolean frozen = false;
+
     @Column(name = "funding_source", length = 100)
     private String fundingSource;
 
@@ -113,6 +116,14 @@ public class PositionEstablishment {
 
     public void setFunded(Boolean funded) {
         this.funded = funded;
+    }
+
+    public Boolean getFrozen() {
+        return frozen;
+    }
+
+    public void setFrozen(Boolean frozen) {
+        this.frozen = frozen;
     }
 
     public String getFundingSource() {

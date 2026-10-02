@@ -12,6 +12,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.temporal.TemporalAdjusters;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -145,12 +149,13 @@ class LeaveCalculationIntegrationTest {
         String token = login("hr", "Hr@123");
         String empId = createEmployee(token, "EMP-CALC-004", "calc4@test.com", "Division I");
         jdbc.update("UPDATE leave_balances SET vacation_leave_balance = 200 WHERE employee_id = ?", Long.parseLong(empId));
+        LocalDate vacationStartDate = LocalDate.now().plusDays(40);
 
         mockMvc.perform(get("/leaves/calculate")
                         .header("Authorization", "Bearer " + token)
                         .param("employeeId", empId)
                         .param("leaveType", "VACATION")
-                        .param("startDate", "2026-09-01")
+                        .param("startDate", vacationStartDate.toString())
                         .param("requestedDays", "130"))
 
                 .andExpect(status().isOk())
@@ -166,12 +171,13 @@ class LeaveCalculationIntegrationTest {
         String token = login("hr", "Hr@123");
         String empId = createEmployee(token, "EMP-CALC-005", "calc5@test.com", "Division II");
         jdbc.update("UPDATE leave_balances SET vacation_leave_balance = 250 WHERE employee_id = ?", Long.parseLong(empId));
+        LocalDate vacationStartDate = LocalDate.now().plusDays(40);
 
         mockMvc.perform(get("/leaves/calculate")
                         .header("Authorization", "Bearer " + token)
                         .param("employeeId", empId)
                         .param("leaveType", "VACATION")
-                        .param("startDate", "2026-09-01")
+                        .param("startDate", vacationStartDate.toString())
                         .param("requestedDays", "5"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accumulationLimit").value(205))
@@ -201,13 +207,13 @@ class LeaveCalculationIntegrationTest {
         String token = login("hr", "Hr@123");
         String empId = createEmployee(token, "EMP-CALC-009", "calc9@test.com", "Division I");
         jdbc.update("UPDATE leave_balances SET local_leave_balance = 30 WHERE employee_id = ?", Long.parseLong(empId));
-
+        LocalDate startDate = nextFutureWeekday(DayOfWeek.MONDAY);
         mockMvc.perform(post("/leaves")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"employeeId\":" + empId
                                 + ",\"leaveType\":\"LOCAL\""
-                                + ",\"startDate\":\"2026-08-03\",\"endDate\":\"2026-08-04\""
+                                + ",\"startDate\":\"" + startDate + "\",\"daysRequested\":2"
                                 + ",\"reason\":\"Test resumption date storage\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.daysRequested").value(2));
@@ -215,7 +221,7 @@ class LeaveCalculationIntegrationTest {
         String resumptionDate = jdbc.queryForObject(
                 "SELECT CAST(resumption_date AS VARCHAR) FROM erp_leave_request WHERE employee_id = ?",
                 String.class, Long.parseLong(empId));
-        org.junit.jupiter.api.Assertions.assertEquals("2026-08-05", resumptionDate);
+        org.junit.jupiter.api.Assertions.assertEquals(startDate.plusDays(2).toString(), resumptionDate);
     }
 
 
@@ -239,6 +245,16 @@ class LeaveCalculationIntegrationTest {
         org.junit.jupiter.api.Assertions.assertEquals(0, count,
                 "Preview calculations must not write to the audit log");
     }
+
+    private LocalDate nextFutureWeekday(DayOfWeek dayOfWeek) {
+        LocalDate today = LocalDate.now();
+        LocalDate candidate = today.with(TemporalAdjusters.nextOrSame(dayOfWeek));
+        if (!candidate.isAfter(today)) {
+            candidate = candidate.plusWeeks(1);
+        }
+        return candidate;
+    }
+
     private String createEmployee(String token, String code, String email, String division) throws Exception {
         String body = "{\"employeeCode\":\"" + code + "\",\"firstName\":\"Test\",\"lastName\":\"User\","
                 + "\"email\":\"" + email + "\",\"department\":\"HR\",\"positionTitle\":\"Officer\","

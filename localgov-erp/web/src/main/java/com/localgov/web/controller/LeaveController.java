@@ -92,7 +92,7 @@ public class LeaveController {
             @RequestParam LeaveType leaveType,
             @RequestParam(required = false) CompassionateLeaveRelation compassionateRelation,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam @Min(1) Integer daysRequested,
             @RequestParam String reason,
             @RequestParam(value = "supportingDocument", required = false) MultipartFile supportingDocument
     ) {
@@ -111,7 +111,7 @@ public class LeaveController {
         }
 
         return leaveService.submitLeaveRequest(
-            new LeaveRequestCreateRequest(employeeId, leaveType, compassionateRelation, startDate, endDate, reason),
+            new LeaveRequestCreateRequest(employeeId, leaveType, compassionateRelation, startDate, daysRequested, reason),
                 documentName,
                 documentContentType,
                 documentBytes

@@ -29,7 +29,7 @@ public class MfaService {
         return userAccountRepository.findByUsernameIgnoreCase(username)
                 .map(UserAccount::getMfaEnabled)
                 .filter(Boolean.TRUE::equals)
-                .isPresent();
+                .isPresent(); 
     }
 
     public boolean verifyCode(String username, String code) {

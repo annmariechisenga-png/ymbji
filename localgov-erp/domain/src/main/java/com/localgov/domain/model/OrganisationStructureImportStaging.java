@@ -71,6 +71,25 @@ public class OrganisationStructureImportStaging {
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
 
+    @Column(name = "source_department", length = 200)
+    private String sourceDepartment;
+
+    @Column(name = "source_unit", length = 200)
+    private String sourceUnit;
+
+    @Column(name = "source_location", length = 200)
+    private String sourceLocation;
+
+    @Column(name = "source_applicability", length = 80)
+    private String sourceApplicability;
+
+    @Column(name = "source_authority", length = 200)
+    private String sourceAuthority;
+
+    @Column(name = "source_line")
+    private Integer sourceLine;
+
+
     @Column(name = "validation_status", nullable = false, length = 30)
     private String validationStatus = "PENDING";
 
@@ -129,6 +148,13 @@ public class OrganisationStructureImportStaging {
     public Integer getFundingYear() { return fundingYear; }
     public boolean isFrozen() { return frozen; }
     public boolean isAttached() { return attached; }
+    public String getSourceDepartment() { return sourceDepartment; }
+    public String getSourceUnit() { return sourceUnit; }
+    public String getSourceLocation() { return sourceLocation; }
+    public String getSourceApplicability() { return sourceApplicability; }
+    public String getSourceAuthority() { return sourceAuthority; }
+    public Integer getSourceLine() { return sourceLine; }
+
     public boolean isActive() { return active; }
     public String getValidationStatus() { return validationStatus; }
     public String getValidationMessage() { return validationMessage; }
@@ -154,6 +180,31 @@ public class OrganisationStructureImportStaging {
     public void setFrozen(boolean frozen) { this.frozen = frozen; }
     public void setAttached(boolean attached) { this.attached = attached; }
     public void setActive(boolean active) { this.active = active; }
+
+    public void setSourceDepartment(String sourceDepartment) {
+        this.sourceDepartment = sourceDepartment;
+    }
+
+    public void setSourceUnit(String sourceUnit) {
+        this.sourceUnit = sourceUnit;
+    }
+
+    public void setSourceLocation(String sourceLocation) {
+        this.sourceLocation = sourceLocation;
+    }
+
+    public void setSourceApplicability(String sourceApplicability) {
+        this.sourceApplicability = sourceApplicability;
+    }
+
+    public void setSourceAuthority(String sourceAuthority) {
+        this.sourceAuthority = sourceAuthority;
+    }
+
+    public void setSourceLine(Integer sourceLine) {
+        this.sourceLine = sourceLine;
+    }
+
     public void setValidationStatus(String validationStatus) { this.validationStatus = validationStatus; }
     public void setValidationMessage(String validationMessage) { this.validationMessage = validationMessage; }
     public void setResolvedEntityId(Long resolvedEntityId) { this.resolvedEntityId = resolvedEntityId; }

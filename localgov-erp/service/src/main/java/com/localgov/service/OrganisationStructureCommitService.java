@@ -141,9 +141,18 @@ public class OrganisationStructureCommitService {
         );
     }
 
-    public CanonicalCommitDryRunResult dryRun(Long batchId) {
+    public CanonicalCommitDryRunResult dryRun(Long batchId, Integer establishmentYear) {
         if (batchId == null) {
             throw new IllegalArgumentException("batchId is required");
+        }
+
+        if (establishmentYear == null) {
+            throw new IllegalArgumentException("establishmentYear is required");
+        }
+
+        if (establishmentYear < 2000 || establishmentYear > 2100) {
+            throw new IllegalArgumentException(
+                    "Establishment year must be between 2000 and 2100");
         }
 
         List<OrganisationStructureValidationResolution> resolutions =
@@ -180,6 +189,7 @@ public class OrganisationStructureCommitService {
         int rejectCount = 0;
         int unitCreateCount = 0;
         int positionCreateCount = 0;
+        int establishmentCreateCount = 0;
 
         List<CanonicalCommitDryRunRow> rows =
                 new java.util.ArrayList<>();
@@ -212,6 +222,25 @@ public class OrganisationStructureCommitService {
                 if (POSITION.equals(
                         normalize(resolution.getSourceNodeType()))) {
                     positionCreateCount++;
+
+                    if (staging == null) {
+                        throw new IllegalStateException(
+                                "CREATE Position has no staging row: "
+                                        + resolution.getStagingId());
+                    }
+
+                    Integer quantity = staging.getEstablishmentQuantity();
+
+                    if (quantity == null || quantity < 0) {
+                        throw new IllegalArgumentException(
+                                "Approved establishment quantity cannot be negative: "
+                                        + normalize(
+                                                staging.getSourceRecordReference()));
+                    }
+
+                    if (quantity > 0) {
+                        establishmentCreateCount++;
+                    }
                 } else {
                     unitCreateCount++;
                 }
@@ -251,7 +280,7 @@ public class OrganisationStructureCommitService {
                 rejectCount,
                 unitCreateCount,
                 positionCreateCount,
-                0,
+                establishmentCreateCount,
                 rows
         );
     }

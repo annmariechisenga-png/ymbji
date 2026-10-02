@@ -125,6 +125,21 @@ class OrganisationStructureCanonicalPositionEstablishmentCandidateFactoryTest {
     }
 
     @Test
+    void shouldIgnoreZeroEstablishmentQuantity() {
+        OrganisationStructureStagingRecord record =
+                positionRecord("TC-0000", 0, true, false);
+
+        List<CanonicalPositionEstablishmentCommitCandidate> result =
+                factory.createCandidates(
+                        List.of(record),
+                        Map.of("TC-0000", 100L),
+                        2023
+                );
+
+        assertEquals(0, result.size());
+    }
+
+    @Test
     void shouldCarryEstablishedAndFrozenFlags() {
         OrganisationStructureStagingRecord record =
                 positionRecord("TC-0002", 3, false, true);

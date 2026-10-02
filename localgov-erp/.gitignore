@@ -1,0 +1,21 @@
+# Maven
+**/target/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Python virtual environments
+.pdf-tools/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
