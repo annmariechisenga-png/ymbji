@@ -34,7 +34,7 @@ public class UserAccount {
     @Column(name = "dashboard_position_id", nullable = false, length = 80)
     private String dashboardPositionId;
 
-    @Column(name = "authority_code", length = 10)
+    @Column(name = "authority_code", length = 50)
     private String authorityCode;
 
     @Column(name = "authority_type", nullable = false, length = 50)

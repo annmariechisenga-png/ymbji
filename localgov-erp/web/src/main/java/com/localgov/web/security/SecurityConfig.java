@@ -33,6 +33,7 @@ public class SecurityConfig {
             JwtAuthenticationFilter jwtAuthenticationFilter,
             CsrfCookieFilter csrfCookieFilter,
             SecurityAuditFilter securityAuditFilter,
+            TenantContextFilter tenantContextFilter,
             RestAuthenticationEntryPoint restAuthenticationEntryPoint,
             RestAccessDeniedHandler restAccessDeniedHandler,
             AuthenticationProvider authenticationProvider,
@@ -96,7 +97,8 @@ public class SecurityConfig {
                 .authenticationProvider(authenticationProvider)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterAfter(csrfCookieFilter, org.springframework.security.web.csrf.CsrfFilter.class)
-                .addFilterAfter(securityAuditFilter, JwtAuthenticationFilter.class);
+                .addFilterAfter(securityAuditFilter, JwtAuthenticationFilter.class)
+                .addFilterAfter(tenantContextFilter, SecurityAuditFilter.class);
 
         return http.build();
     }
