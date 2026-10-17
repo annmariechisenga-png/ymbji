@@ -264,10 +264,13 @@ Every EARNING line carries a `source_type` and `source_reference` for traceabili
 
 The engine applies statutory rules from the compliance store (see Part E):
 
-- **PAYE** — progressive bands, with the effective-date rule that applies for the cycle's period
-- **NAPSA (employee)** — rate x gross, with ceiling if applicable
-- **NHIMA (employee)** — rate x gross
-- **LASF (employee)** — rate x gross
+- **PAYE** — progressive bands (base: taxable gross), with the effective-date rule that applies for the cycle's period
+- **NAPSA (employee)** — rate × gross, with ceiling; applies only to employees hired on or after 2000-03-01
+- **NHIMA (employee)** — rate × basic
+- **LASF (employee)** — rate × basic; applies only to employees hired before 2000-03-01
+- **GRZ Funeral (employee)** — rate × basic; optional parent extension tiers
+
+LASF and NAPSA are **mutually exclusive**, determined by `employees.date_of_first_appointment` vs 2000-03-01. No employee contributes to both. The engine derives the applicable scheme at compute time.
 
 Any voluntary deduction that arises from a workflow (union dues, staff loan, cooperative) is **not** computed here — it is already in `payroll_lines` as a `DEDUCTION` line, emitted by that workflow.
 
@@ -751,549 +754,529 @@ Performance is measured with the production data volume of the largest onboarded
 
 ## 10. Data model (SQL DDL)
 
-This section defines the physical schema. It is the **canonical reference** — any migration must produce a schema that matches this. Names are lower_snake_case. All timestamps are `TIMESTAMPTZ` interpreted in `Africa/Lusaka` (Section 4.10). All money columns are `NUMERIC(14,2)`. All `authority_code` columns are `TEXT` and reference `authority(authority_code)`.
+This section is the **canonical reference** for the payroll engine's schema. It reflects the **existing** schema built by Flyway migrations V1–V116, extended by V117–V119 (payroll engine work). It is not a greenfield design; it is an **additive** description of the payroll engine's data footprint on top of a mature ERP schema.
+
+All names are lower_snake_case. All timestamps are `TIMESTAMPTZ` unless noted, interpreted in `Africa/Lusaka` (§4.10). All money columns are `NUMERIC(18,2)` for payroll amounts (existing payroll tables), or `NUMERIC(14,2)` for table comments only. All `authority_code` values are `VARCHAR(50)` and reference `authorities(authority_code)`.
 
 ### 10.1 Extensions and schemas
 
-    CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- for gen_random_uuid(), digest()
-    CREATE EXTENSION IF NOT EXISTS citext;     -- for case-insensitive codes where needed
-
-    CREATE SCHEMA IF NOT EXISTS payroll;
-    CREATE SCHEMA IF NOT EXISTS compliance;
-    CREATE SCHEMA IF NOT EXISTS audit;
-
-    SET search_path = payroll, compliance, audit, public;
-
-### 10.2 Authority (tenant registry)
-
-    CREATE TABLE authority (
-        authority_code      TEXT PRIMARY KEY,
-        name                TEXT NOT NULL,
-        short_name          TEXT,
-        district            TEXT,
-        province            TEXT,
-        bank_name           TEXT,
-        bank_branch         TEXT,
-        bank_account        BYTEA,           -- encrypted at rest
-        bank_file_format    TEXT NOT NULL DEFAULT 'ZANACO',
-        status              TEXT NOT NULL DEFAULT 'ACTIVE'
-                              CHECK (status IN ('ACTIVE','ARCHIVED')),
-        created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-
-    CREATE INDEX idx_authority_status ON authority(status);
-
-### 10.3 Employees and employment history
-
-    CREATE TABLE employees (
-        employee_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        authority_code      TEXT NOT NULL REFERENCES authority(authority_code),
-        employee_number     TEXT NOT NULL,             -- e.g. EMP-0042
-        nrc                 BYTEA NOT NULL,            -- encrypted national registration card
-        first_name          TEXT NOT NULL,
-        last_name           TEXT NOT NULL,
-        date_of_birth       DATE NOT NULL,
-        gender              TEXT CHECK (gender IN ('M','F')),
-        email               CITEXT,
-        phone               TEXT,
-        department          TEXT,
-        designation         TEXT,
-        salary_scale        TEXT NOT NULL,             -- e.g. LGSS/04
-        bank_name           TEXT,
-        bank_branch         TEXT,
-        bank_account        BYTEA,                     -- encrypted
-        tax_number          TEXT,                      -- TPIN
-        napsa_number        TEXT,
-        nhima_number        TEXT,
-        status              TEXT NOT NULL DEFAULT 'ACTIVE'
-                              CHECK (status IN ('ACTIVE','SUSPENDED','TERMINATED')),
-        created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-        UNIQUE (authority_code, employee_number)
-    );
-
-    CREATE INDEX idx_employees_authority ON employees(authority_code);
-    CREATE INDEX idx_employees_status    ON employees(authority_code, status);
-
-    CREATE TABLE employment_history (
-        history_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        authority_code      TEXT NOT NULL REFERENCES authority(authority_code),
-        employee_id         UUID NOT NULL REFERENCES employees(employee_id),
-        scale               TEXT NOT NULL,
-        notch               TEXT NOT NULL,
-        effective_from      DATE NOT NULL,
-        effective_to        DATE,                       -- NULL = open-ended
-        is_current          BOOLEAN NOT NULL DEFAULT FALSE,
-        reason              TEXT,
-        created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CHECK (effective_to IS NULL OR effective_to >= effective_from)
-    );
-
-    CREATE INDEX idx_employment_history_emp
-        ON employment_history(employee_id, effective_from DESC);
-    CREATE UNIQUE INDEX uq_employment_history_current
-        ON employment_history(employee_id)
-        WHERE is_current = TRUE;
-
-### 10.4 Salary scale (national)
-
-    CREATE TABLE salary_scale_official (
-        scale               TEXT NOT NULL,             -- e.g. LGSS/04
-        notch               TEXT NOT NULL,             -- e.g. N1
-        effective_from      DATE NOT NULL,
-        effective_to        DATE,
-        monthly_amount      NUMERIC(14,2) NOT NULL,
-        PRIMARY KEY (scale, notch, effective_from),
-        CHECK (monthly_amount >= 0),
-        CHECK (effective_to IS NULL OR effective_to >= effective_from)
-    );
-
-### 10.5 Payroll cycles
-
-    CREATE TABLE payroll_cycles (
-        cycle_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        authority_code      TEXT NOT NULL REFERENCES authority(authority_code),
-        cycle_code          TEXT NOT NULL,             -- e.g. 2026-10
-        period_start        DATE NOT NULL,
-        period_end          DATE NOT NULL,
-        cutoff_date         DATE NOT NULL,
-        pay_date            DATE NOT NULL,
-        status              TEXT NOT NULL DEFAULT 'OPEN'
-                              CHECK (status IN ('OPEN','LOCKED','CLOSED','CANCELLED')),
-        created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-        UNIQUE (authority_code, cycle_code),
-        CHECK (period_end >= period_start)
-    );
-
-    CREATE INDEX idx_payroll_cycles_authority
-        ON payroll_cycles(authority_code, cycle_code DESC);
-
-### 10.6 Payroll runs
-
-    CREATE TABLE payroll_runs (
-        run_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        authority_code      TEXT NOT NULL REFERENCES authority(authority_code),
-        cycle_id            UUID NOT NULL REFERENCES payroll_cycles(cycle_id),
-        status              TEXT NOT NULL DEFAULT 'PENDING'
-                              CHECK (status IN ('PENDING','RUNNING','COMPLETE',
-                                                'FAILED','PAID','ARCHIVED')),
-        idempotency_key     TEXT NOT NULL,
-        engine_version      TEXT NOT NULL,
-        started_at          TIMESTAMPTZ,
-        completed_at        TIMESTAMPTZ,
-        employee_count      INTEGER,
-        gross_total         NUMERIC(14,2),
-        net_total           NUMERIC(14,2),
-        run_hash            TEXT,                       -- hex sha256 over payslips
-        failure_reason      TEXT,
-        created_by          TEXT NOT NULL,
-        created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-        UNIQUE (authority_code, idempotency_key)
-    );
-
-    CREATE INDEX idx_payroll_runs_cycle ON payroll_runs(cycle_id, status);
-    CREATE INDEX idx_payroll_runs_authority
-        ON payroll_runs(authority_code, created_at DESC);
-
-    -- At most one RUNNING run per cycle (Section 5.3)
-    CREATE UNIQUE INDEX uq_payroll_run_one_running_per_cycle
-        ON payroll_runs(cycle_id)
-        WHERE status = 'RUNNING';
-
-### 10.7 Payroll lines
-
-Inputs to a run. Lines are **immutable once the cycle is LOCKED**.
-
-    CREATE TABLE payroll_lines (
-        line_id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        authority_code      TEXT NOT NULL REFERENCES authority(authority_code),
-        cycle_id            UUID NOT NULL REFERENCES payroll_cycles(cycle_id),
-        employee_id         UUID NOT NULL REFERENCES employees(employee_id),
-        line_type           TEXT NOT NULL
-                              CHECK (line_type IN ('EARNING','DEDUCTION',
-                                                    'EMPLOYER_CONTRIB')),
-        source_type         TEXT NOT NULL,            -- OVERTIME / SALARY_ADVANCE / ...
-        source_reference    TEXT,                     -- FK to originating workflow
-        description         TEXT NOT NULL,
-        amount              NUMERIC(14,2) NOT NULL,
-        quantity            NUMERIC(14,4),            -- e.g. hours
-        rate                NUMERIC(14,4),            -- e.g. hourly rate
-        currency            TEXT NOT NULL DEFAULT 'ZMW',
-        created_by          TEXT NOT NULL,
-        created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CHECK (amount >= 0)
-    );
-
-    CREATE INDEX idx_payroll_lines_cycle_emp
-        ON payroll_lines(cycle_id, employee_id);
-    CREATE INDEX idx_payroll_lines_source
-        ON payroll_lines(source_type, source_reference);
-
-### 10.8 Payslips
-
-Immutable once written.
-
-    CREATE TABLE payslips (
-        payslip_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        authority_code      TEXT NOT NULL REFERENCES authority(authority_code),
-        run_id              UUID NOT NULL REFERENCES payroll_runs(run_id),
-        cycle_id            UUID NOT NULL REFERENCES payroll_cycles(cycle_id),
-        employee_id         UUID NOT NULL REFERENCES employees(employee_id),
-        basic_salary        NUMERIC(14,2) NOT NULL,
-        basic_prorated      NUMERIC(14,2) NOT NULL,
-        earnings_total      NUMERIC(14,2) NOT NULL,
-        gross_pay           NUMERIC(14,2) NOT NULL,
-        deductions_total    NUMERIC(14,2) NOT NULL,
-        net_pay             NUMERIC(14,2) NOT NULL,
-        employer_contrib    NUMERIC(14,2) NOT NULL,
-        employer_cost       NUMERIC(14,2) NOT NULL,
-        pdf_object_key      TEXT NOT NULL,             -- authority/cycle/employee.pdf
-        pdf_hash            TEXT NOT NULL,             -- hex sha256 of the PDF
-        generated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-        UNIQUE (run_id, employee_id),
-        CHECK (net_pay >= 0)
-    );
-
-    CREATE INDEX idx_payslips_authority_cycle
-        ON payslips(authority_code, cycle_id);
-    CREATE INDEX idx_payslips_employee
-        ON payslips(employee_id, generated_at DESC);
-
-### 10.9 Payslip line detail
-
-A frozen snapshot of every line that contributed to a payslip. Separate table so the payslip header stays lean and the line detail can be queried without loading the full slip.
-
-    CREATE TABLE payslip_lines (
-        payslip_line_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        authority_code      TEXT NOT NULL REFERENCES authority(authority_code),
-        payslip_id          UUID NOT NULL REFERENCES payslips(payslip_id),
-        section             TEXT NOT NULL
-                              CHECK (section IN ('EARNING','DEDUCTION',
-                                                  'EMPLOYER_CONTRIB')),
-        source_type         TEXT NOT NULL,
-        source_reference    TEXT,
-        description         TEXT NOT NULL,
-        amount              NUMERIC(14,2) NOT NULL,
-        display_order       INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE INDEX idx_payslip_lines_payslip
-        ON payslip_lines(payslip_id, section, display_order);
-
-### 10.10 Compliance rules
-
-    CREATE TABLE compliance_rule (
-        rule_id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        rule_code           TEXT NOT NULL,             -- PAYE_BANDS, NAPSA_RATE, ...
-        scope               TEXT NOT NULL
-                              CHECK (scope IN ('NATIONAL','TENANT')),
-        authority_code      TEXT REFERENCES authority(authority_code),
-        effective_from      DATE NOT NULL,
-        effective_to        DATE,
-        rule_version        INTEGER NOT NULL,
-        parameters          JSONB NOT NULL,
-        notes               TEXT,
-        created_by          TEXT NOT NULL,
-        created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CHECK ( (scope = 'NATIONAL' AND authority_code IS NULL)
-             OR (scope = 'TENANT'   AND authority_code IS NOT NULL) ),
-        CHECK (effective_to IS NULL OR effective_to >= effective_from),
-        UNIQUE (rule_code, scope, authority_code, effective_from, rule_version)
-    );
-
-    CREATE INDEX idx_compliance_rule_lookup
-        ON compliance_rule(rule_code, effective_from DESC);
-
-    CREATE TABLE compliance_rule_change_log (
-        change_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        authority_code      TEXT,
-        entity_type         TEXT NOT NULL,             -- RULE / PAYROLL_RUN / ...
-        entity_id           TEXT NOT NULL,
-        action              TEXT NOT NULL,             -- CREATE / UPDATE / LOCK / PAY / FAIL
-        actor_id            TEXT NOT NULL,
-        actor_role          TEXT,
-        reason              TEXT,
-        old_value           JSONB,
-        new_value           JSONB,
-        entry_hash          TEXT NOT NULL,             -- chained
-        previous_hash       TEXT,
-        occurred_at         TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-
-    CREATE INDEX idx_rule_change_entity
-        ON compliance_rule_change_log(entity_type, entity_id, occurred_at DESC);
-    CREATE INDEX idx_rule_change_authority
-        ON compliance_rule_change_log(authority_code, occurred_at DESC);
-
-### 10.11 Claims
-
-    CREATE TABLE claims (
-        claim_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        authority_code      TEXT NOT NULL REFERENCES authority(authority_code),
-        employee_id         UUID NOT NULL REFERENCES employees(employee_id),
-        cycle_id            UUID REFERENCES payroll_cycles(cycle_id),
-        claim_type          TEXT NOT NULL,             -- OVERTIME / SALARY_ADVANCE / ...
-        amount              NUMERIC(14,2) NOT NULL,
-        quantity            NUMERIC(14,4),
-        rate                NUMERIC(14,4),
-        description         TEXT,
-        evidence_object_key TEXT,
-        status              TEXT NOT NULL DEFAULT 'DRAFT'
-                              CHECK (status IN ('DRAFT','SUBMITTED',
-                                                'SUPERVISOR_APPROVED',
-                                                'HOD_APPROVED',
-                                                'AUDITOR_APPROVED',
-                                                'SECRETARY_APPROVED',
-                                                'REJECTED','CANCELLED')),
-        current_stage       TEXT,
-        submitted_at        TIMESTAMPTZ,
-        decided_at          TIMESTAMPTZ,
-        created_by          TEXT NOT NULL,
-        created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CHECK (amount >= 0)
-    );
-
-    CREATE INDEX idx_claims_authority_status
-        ON claims(authority_code, status);
-    CREATE INDEX idx_claims_employee
-        ON claims(employee_id, created_at DESC);
-
-    CREATE TABLE claim_approvals (
-        approval_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        authority_code      TEXT NOT NULL REFERENCES authority(authority_code),
-        claim_id            UUID NOT NULL REFERENCES claims(claim_id),
-        stage               TEXT NOT NULL,             -- SUPERVISOR / HOD / ...
-        actor_id            TEXT NOT NULL,
-        actor_role          TEXT NOT NULL,
-        decision            TEXT NOT NULL CHECK (decision IN ('APPROVE','REJECT','RETURN')),
-        comment             TEXT,
-        decided_at          TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-
-    CREATE INDEX idx_claim_approvals_claim
-        ON claim_approvals(claim_id, decided_at);
-
-### 10.12 Chart of accounts and GL journal
-
-    CREATE TABLE mofnp_chart_of_accounts (
-        account_code        TEXT PRIMARY KEY,
-        account_name        TEXT NOT NULL,
-        account_type        TEXT NOT NULL
-                              CHECK (account_type IN ('ASSET','LIABILITY',
-                                                      'EQUITY','REVENUE','EXPENSE')),
-        parent_code         TEXT REFERENCES mofnp_chart_of_accounts(account_code),
-        is_postable         BOOLEAN NOT NULL DEFAULT TRUE
-    );
-
-    CREATE TABLE council_chart_of_accounts (
-        authority_code      TEXT NOT NULL REFERENCES authority(authority_code),
-        account_code        TEXT NOT NULL,
-        local_name          TEXT,
-        is_active           BOOLEAN NOT NULL DEFAULT TRUE,
-        PRIMARY KEY (authority_code, account_code)
-    );
-
-    CREATE TABLE gl_journal_entries (
-        entry_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        authority_code      TEXT NOT NULL REFERENCES authority(authority_code),
-        run_id              UUID NOT NULL REFERENCES payroll_runs(run_id),
-        cycle_id            UUID NOT NULL REFERENCES payroll_cycles(cycle_id),
-        account_code        TEXT NOT NULL,
-        debit               NUMERIC(14,2) NOT NULL DEFAULT 0,
-        credit              NUMERIC(14,2) NOT NULL DEFAULT 0,
-        description         TEXT,
-        posted_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CHECK (debit >= 0 AND credit >= 0),
-        CHECK ( (debit > 0 AND credit = 0) OR (credit > 0 AND debit = 0) )
-    );
-
-    CREATE INDEX idx_gl_entries_run ON gl_journal_entries(run_id);
-
-### 10.13 Audit log (general)
-
-    CREATE TABLE audit_log (
-        audit_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        authority_code      TEXT,
-        actor_id            TEXT,
-        actor_role          TEXT,
-        action              TEXT NOT NULL,
-        entity_type         TEXT,
-        entity_id           TEXT,
-        ip_address          INET,
-        user_agent          TEXT,
-        details             JSONB,
-        occurred_at         TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-
-    CREATE INDEX idx_audit_log_occurred
-        ON audit_log(occurred_at DESC);
-    CREATE INDEX idx_audit_log_actor
-        ON audit_log(actor_id, occurred_at DESC);
-
-### 10.14 Row Level Security
-
-Enabled on every tenant-scoped table. Shared tables (`salary_scale_official`, `compliance_rule` where `scope='NATIONAL'`, `mofnp_chart_of_accounts`) are **not** RLS-protected but are restricted to read-only for tenant roles.
-
-    -- Helper: current tenant
-    CREATE OR REPLACE FUNCTION current_authority_code() RETURNS TEXT
-    LANGUAGE sql STABLE AS $$
-        SELECT current_setting('app.authority_code', TRUE)
-    $$;
-
-    DO $$
-    DECLARE t TEXT;
-    BEGIN
-        FOREACH t IN ARRAY ARRAY[
-            'employees','employment_history','payroll_cycles','payroll_runs',
-            'payroll_lines','payslips','payslip_lines','claims','claim_approvals',
-            'council_chart_of_accounts','gl_journal_entries','audit_log',
-            'compliance_rule_change_log'
-        ] LOOP
-            EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY;', t);
-            EXECUTE format(
-              'CREATE POLICY %I_tenant_isolation ON %I '
-              'USING (authority_code = current_authority_code());',
-              t, t);
-        END LOOP;
-    END $$;
-
-    -- Tenant overrides of compliance rules also get RLS
-    ALTER TABLE compliance_rule ENABLE ROW LEVEL SECURITY;
-
-    CREATE POLICY compliance_rule_read ON compliance_rule
-        FOR SELECT USING (
-            scope = 'NATIONAL'
-            OR authority_code = current_authority_code()
-        );
-
-    CREATE POLICY compliance_rule_write ON compliance_rule
-        FOR ALL USING (
-            scope = 'TENANT'
-            AND authority_code = current_authority_code()
-        );
-
-### 10.15 Views
-
-    -- Payslip summary for self-service
-    CREATE VIEW v_employee_payslips AS
-    SELECT  p.payslip_id,
-            p.authority_code,
-            p.employee_id,
-            c.cycle_code,
-            c.period_start,
-            c.period_end,
-            p.gross_pay,
-            p.deductions_total,
-            p.net_pay,
-            p.employer_cost,
-            p.pdf_object_key,
-            p.pdf_hash,
-            p.generated_at
-    FROM    payslips p
-    JOIN    payroll_cycles c ON c.cycle_id = p.cycle_id;
-
-    -- Cutoff watch (Section 5.5)
-    CREATE VIEW v_cutoff_watch AS
-    SELECT  cl.authority_code,
-            cl.cycle_id,
-            cy.cycle_code,
-            cy.cutoff_date,
-            cl.status,
-            COUNT(*) AS claim_count,
-            SUM(cl.amount) AS total_amount
-    FROM    claims cl
-    JOIN    payroll_cycles cy ON cy.cycle_id = cl.cycle_id
-    WHERE   cl.status NOT IN ('REJECTED','CANCELLED','SECRETARY_APPROVED')
-    GROUP BY cl.authority_code, cl.cycle_id, cy.cycle_code,
-             cy.cutoff_date, cl.status;
-
-    -- Employer cost roll-up per cycle
-    CREATE VIEW v_cycle_employer_cost AS
-    SELECT  authority_code,
-            cycle_id,
-            SUM(gross_pay)        AS gross_total,
-            SUM(deductions_total) AS deductions_total,
-            SUM(net_pay)          AS net_total,
-            SUM(employer_contrib) AS employer_contrib_total,
-            SUM(employer_cost)    AS employer_cost_total,
-            COUNT(*)              AS employee_count
-    FROM    payslips
-    GROUP BY authority_code, cycle_id;
-
-### 10.16 Triggers
-
-    -- Set updated_at on row update
-    CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER
-    LANGUAGE plpgsql AS $$
-    BEGIN
-        NEW.updated_at := now();
-        RETURN NEW;
-    END $$;
-
-    DO $$
-    DECLARE t TEXT;
-    BEGIN
-        FOREACH t IN ARRAY ARRAY[
-            'authority','employees','payroll_cycles','claims'
-        ] LOOP
-            EXECUTE format(
-              'CREATE TRIGGER trg_%s_updated_at '
-              'BEFORE UPDATE ON %I '
-              'FOR EACH ROW EXECUTE FUNCTION set_updated_at();',
-              t, t);
-        END LOOP;
-    END $$;
-
-    -- Forbid UPDATE/DELETE on payslips and payslip_lines (immutability)
-    CREATE OR REPLACE FUNCTION forbid_mutation() RETURNS TRIGGER
-    LANGUAGE plpgsql AS $$
-    BEGIN
-        RAISE EXCEPTION 'Table % is append-only; use adjustment lines in the next cycle',
-            TG_TABLE_NAME;
-    END $$;
-
-    CREATE TRIGGER trg_payslips_immutable
-        BEFORE UPDATE OR DELETE ON payslips
-        FOR EACH ROW EXECUTE FUNCTION forbid_mutation();
-
-    CREATE TRIGGER trg_payslip_lines_immutable
-        BEFORE UPDATE OR DELETE ON payslip_lines
-        FOR EACH ROW EXECUTE FUNCTION forbid_mutation();
-
-    CREATE TRIGGER trg_audit_log_immutable
-        BEFORE UPDATE OR DELETE ON audit_log
-        FOR EACH ROW EXECUTE FUNCTION forbid_mutation();
-
-    CREATE TRIGGER trg_rule_change_immutable
-        BEFORE UPDATE OR DELETE ON compliance_rule_change_log
-        FOR EACH ROW EXECUTE FUNCTION forbid_mutation();
-
-### 10.17 Partitioning notes
-
-For production scale (Section 9.2), the following tables are expected to be **partitioned by range on `cycle_id`'s period**, with one partition per year:
-
-- `payroll_lines`
-- `payslips`
-- `payslip_lines`
-- `gl_journal_entries`
-- `audit_log`
-- `compliance_rule_change_log`
-
-Partitioning is applied at the migration layer. The DDL above shows the logical schema; the physical schema uses PostgreSQL declarative partitioning. RLS policies are inherited by partitions.
+The database uses the default `public` schema, plus:
+
+- `pgcrypto` — for `gen_random_uuid()` and `digest()`
+- `citext` — if available; the schema falls back to `TEXT` with case-insensitive functional indexes where needed
+
+No custom schemas (no `payroll.*`, `compliance.*`, `audit.*`). All payroll tables live in `public`, alongside the rest of the ERP.
+
+**Note:** earlier drafts of this contract proposed `payroll`, `compliance`, and `audit` schemas. They were not adopted. The existing ERP uses `public`, and introducing new schemas now would fragment the migration history without benefit.
+
+### 10.2 The tenant registry — `authorities`
+
+The tenant identifier is `authority_code` — a `VARCHAR(50)` value assigned by the national registry (V99) and used as the multi-tenancy key across every business table.
+
+    authorities
+    ├── authority_code    VARCHAR(50)  NOT NULL  UNIQUE   -- tenant key
+    ├── authority_name    TEXT                              -- e.g. "Chilanga Town Council"
+    ├── authority_prefix  TEXT                              -- e.g. "CHL"
+    ├── authority_type    TEXT                              -- CITY | MUNICIPAL | TOWN
+    ├── province_code     VARCHAR(2)                        -- '01'..'10', FK to provinces
+    ├── council_seq       INTEGER                           -- alphabetical within province
+    ├── council_type_id   INTEGER  FK -> council_types
+    ├── hardship_classification  VARCHAR(20)  NULL | 'NONE' | 'RURAL' | 'REMOTE'
+    ├── hardship_allowance_pct   NUMERIC(5,2)     -- 0, 20, 25
+    ├── hardship_updated_at      TIMESTAMPTZ
+    ├── hardship_updated_by      UUID
+    ├── hardship_source          TEXT
+    ├── is_active                BOOLEAN  NOT NULL DEFAULT TRUE
+    ├── sequence_frozen_at       TIMESTAMPTZ  NOT NULL
+    ├── mofnp_province_code      VARCHAR(2)                 -- MoFNP chart coding
+    ├── mofnp_head_code          VARCHAR(4)
+    ├── mofnp_full_head          VARCHAR(6)
+    ├── notes                    TEXT
+    ├── created_at, created_by, updated_at, updated_by
+    └── audit trigger: trg_audit_authorities (AFTER INSERT/UPDATE/DELETE)
+
+    116 rows seeded (V99). All 116 mapped to MoFNP head codes (V104).
+
+**Supporting registry tables:**
+
+- `provinces` (V98) — 10 Zambian provinces, ISO codes
+- `council_types` (V1_0_4) — CITY | MUNICIPAL | TOWN
+- `id_sequence` (V98) — per-`(authority_code, entity_type)` counter for the ID generator
+- `id_entity_type` (V100) — registry of valid entity types (EMPLOYEE, PAYSLIP, etc.)
+
+**The council-scoped ID generator (V100):**
+
+    generate_council_scoped_id(
+        p_authority_code  VARCHAR,
+        p_entity_type     VARCHAR,
+        p_entity_prefix   VARCHAR DEFAULT NULL,
+        p_sequence_width  INTEGER DEFAULT 6
+    ) RETURNS VARCHAR
+
+Produces `{province_code}-{council_seq:02d}-{prefix}{sequence:0width}`. Example: `09-01-000001` for the first employee of Chilanga (province 09, council #1). The counter lives in `id_sequence`. Never renumbered.
+
+Example: `09-01-000001` for Chilanga's first employee; `09-01-PR00001` for its first payroll run if using prefix `PR`.
+
+**The payroll engine does not touch the registry.** It reads `authorities` for validation and reports. Any change to a council's data is a registry operation, audited separately.
+
+### 10.3 Employees — `employees`
+
+The canonical employee master is `employees` (V4_2 base, merged with `erp_employee` in V115, hardened in V116). The old `erp_employee` table was **dropped** in V115.
+
+    employees
+    ├── employee_id            TEXT PRIMARY KEY        -- e.g. '09-01-000001'
+    ├── employee_uuid          UUID UNIQUE
+    ├── authority_code         VARCHAR(50)  NOT NULL   -- tenant key
+    ├── first_name, middle_name, last_name    VARCHAR
+    ├── name                   TEXT                    -- legacy combined
+    ├── sex                    TEXT
+    ├── date_of_birth          DATE
+    ├── nrc_number             TEXT                    -- legacy plaintext
+    ├── nrc_hash, nrc_masked, nrc_encrypted  TEXT      -- PII-hardened (V114)
+    ├── phone_number, phone_hash, phone_masked, phone_encrypted
+    ├── email, email_hash, email_masked, email_encrypted
+    ├── tpin,    tpin_hash,    tpin_masked,    tpin_encrypted
+    ├── napsa_number, napsa_hash, napsa_masked, napsa_encrypted
+    ├── nhima_number, nhima_hash, nhima_masked, nhima_encrypted
+    ├── lasf_number,  lasf_hash,  lasf_masked,  lasf_encrypted
+    ├── bank_name, bank_branch, bank_account_number, bank_account_name
+    ├── bank_account_hash, bank_account_masked, bank_account_encrypted
+    ├── dob_hash, dob_masked, dob_encrypted
+    ├── position, department, salary_scale
+    ├── local_authority_service_number
+    ├── date_of_first_appointment  DATE           -- LASF/NAPSA cutoff source
+    ├── date_confirmed, date_substantive_appointment, date_reported
+    ├── hire_date                  DATE
+    ├── employment_status          VARCHAR(20)   -- ACTIVE | SUSPENDED | TERMINATED | RETIRED | DECEASED
+    ├── contract_type              VARCHAR(20)   -- PERMANENT | CONTRACT | TEMPORARY | CASUAL | INTERN
+    ├── termination_date, termination_reason
+    ├── default_fund_id       UUID FK -> fund
+    ├── default_cost_center_id UUID FK -> cost_center
+    ├── supervisor_id         TEXT                 -- provisional, to be reconciled at org-structure merge
+    ├── notification_preference
+    ├── academic_qualifications, professional_qualifications
+    ├── acting_position, acting_date
+    ├── carried_forward_leave, days_availed, leave_taken, leave_commuted,
+    │   leave_transferred_out, leave_balance    TEXT   -- legacy leave fields
+    ├── created_at, created_by, updated_at, updated_by
+    └── audit trigger: trg_audit_employees
+
+    UNIQUE (authority_code, employee_id)
+    UNIQUE (employee_uuid)
+    CHECK  employment_status IN (...)
+    CHECK  contract_type IN (...)
+
+Key point: **`authority_code` is part of the primary lookup**. Every query against `employees` filters by tenant, and every composite FK from payroll tables includes `authority_code`. Tenant isolation is enforced structurally (by key design) and also by RLS (see §10.14, phase V120+).
+
+`date_of_first_appointment` is the field the payroll engine uses to decide LASF vs NAPSA (see §4.4 and §10.10). It is **not** the same as `hire_date`; the former is the historical first appointment, the latter may reflect current engagement.
+
+### 10.4 Employment history — `employment_history`
+
+Records salary placements over time. Note: the FK to `erp_authority_master` is legacy — this table predates the `authorities` registry and has not yet been retargeted.
+
+    employment_history
+    ├── id                    BIGSERIAL PRIMARY KEY
+    ├── officer_id            BIGINT  NOT NULL  FK -> erp_employee(id)  ⚠ broken FK after V115
+    ├── authority_id          VARCHAR(40)  FK -> erp_authority_master   ⚠ legacy
+    ├── salary_scale          VARCHAR(30)   -- LGSS01..LGSS18, GRADE_01..GRADE_03
+    ├── notch_number          INTEGER
+    ├── monthly_salary        NUMERIC(18,2)
+    ├── approved_by, approval_date, approval_reference
+    ├── appointment_letter_url
+    ├── effective_date        DATE NOT NULL
+    ├── end_date              DATE
+    ├── is_current            BOOLEAN
+    └── created_by, created_at
+
+⚠ **Known issue:** V115 dropped `erp_employee`, but `employment_history.officer_id` still references it. This FK is broken at the database level. Fixing it requires a follow-up migration (either retarget to `employees(employee_id)` with a type change, or archive the table if unused). The payroll engine does **not** read from `employment_history` yet — it reads `employees.salary_scale` directly. This is flagged in §11.
+
+### 10.5 Salary scales and notch values
+
+Two tables cooperate:
+
+**`salary_scales_official` (V13)** — the scale definitions:
+
+    salary_scales_official
+    ├── id                    BIGSERIAL PRIMARY KEY
+    ├── salary_scale          VARCHAR(30)  NOT NULL  -- LGSS01..LGSS18, GRADE_01..03
+    ├── division              VARCHAR(30)  NOT NULL  -- DIVISION_I..IV
+    ├── min_notch             INTEGER
+    ├── max_notch             INTEGER
+    ├── effective_from        DATE
+    ├── effective_to          DATE
+    ├── is_active             BOOLEAN
+    ├── authority_document    VARCHAR(200)
+    └── page_reference        VARCHAR(50)
+
+    21 rows seeded (V13): LGSS01–LGSS18 (Divisions I–III), GRADE_01–03 (Division IV).
+
+**`erp_salary_notch_value` (V9)** — the actual money per notch:
+
+    erp_salary_notch_value
+    ├── id                    BIGSERIAL PRIMARY KEY
+    ├── salary_scale          VARCHAR(30)
+    ├── notch_no              INTEGER
+    ├── annual_salary         NUMERIC(18,2)
+    ├── monthly_salary        NUMERIC(18,2)
+    ├── effective_from, effective_to
+
+**`erp_employee_salary_notch` (V9)** — the assignment of an employee to a notch:
+
+    erp_employee_salary_notch
+    ├── id                    BIGSERIAL PRIMARY KEY
+    ├── employee_id           BIGINT  FK -> erp_employee  ⚠ broken after V115
+    ├── salary_scale, notch_no
+    ├── effective_from, effective_to
+    ├── is_active             BOOLEAN
+
+⚠ **Known issue:** `erp_employee_salary_notch.employee_id` also points at the dropped `erp_employee`. Same follow-up as §10.4.
+
+**Payroll engine resolution path:** `employees.salary_scale` → `salary_scales_official` (scale and division) → `erp_salary_notch_value` (monthly amount at the current notch). The current notch is read from `erp_employee_salary_notch WHERE is_active = TRUE` — **but this is currently unusable** because of the broken FK. Until the FK is fixed, the engine resolves the notch from a payroll period snapshot (which is present in `erp_payroll_run_item.notch_no`). Flagged in §11.
+
+### 10.6 Payroll periods — `erp_payroll_period`
+
+    erp_payroll_period
+    ├── id                    BIGSERIAL PRIMARY KEY
+    ├── period_code           VARCHAR(20) UNIQUE   -- e.g. '2026-10'
+    ├── period_year           INTEGER
+    ├── period_month          INTEGER  CHECK 1..12
+    ├── period_start          DATE
+    ├── period_end            DATE
+    ├── is_closed             BOOLEAN
+    ├── authority_code        VARCHAR(50) NOT NULL  -- added V118
+    └── created_at
+
+    RLS: FORCE ROW LEVEL SECURITY
+    Policy: payroll_period_tenant_isolation
+            USING  (authority_code = current_setting('app.current_tenant', true))
+            WITH CHECK (same)
+
+### 10.7 Payroll runs — `erp_payroll_run`
+
+    erp_payroll_run
+    ├── id                    BIGSERIAL PRIMARY KEY
+    ├── run_code              VARCHAR(30) UNIQUE
+    ├── payroll_period_id     BIGINT FK -> erp_payroll_period(id)
+    ├── run_status            VARCHAR(20)  -- DRAFT | PROCESSING | COMPLETE | PAID | FAILED | CANCELLED
+    ├── processed_by, processed_at
+    ├── total_employees, total_basic, total_allowances, total_gross,
+    │   total_deductions, total_net     NUMERIC(18,2) / INTEGER
+    ├── authority_code        VARCHAR(50) NOT NULL  -- added V118
+    └── created_at
+
+    RLS: FORCE ROW LEVEL SECURITY
+    Policy: payroll_run_tenant_isolation
+            USING  (authority_code = current_setting('app.current_tenant', true))
+            WITH CHECK (same)
+
+**Note:** the existing `run_status` values are free-form `VARCHAR(20)`. The payroll engine's lifecycle (§5) maps to these as:
+
+| §5 state | run_status value |
+|---|---|
+| PENDING | DRAFT |
+| RUNNING | PROCESSING |
+| COMPLETE | COMPLETE |
+| FAILED | FAILED |
+| PAID | PAID |
+| ARCHIVED | CANCELLED (not currently used) |
+
+There is **no idempotency_key column** and **no partial unique index on RUNNING** (the §5.2/§5.3 design). This is flagged in §11 as a future enhancement.
+
+### 10.8 Payroll lines — `erp_payroll_run_item`
+
+This is the **flat, fixed-column** payroll line — one row per (run, employee) — that has existed since V9 and has been extended in V117 for tenant alignment and traceability.
+
+    erp_payroll_run_item
+    ├── id                    BIGSERIAL PRIMARY KEY
+    ├── payroll_run_id        BIGINT FK -> erp_payroll_run(id) ON DELETE CASCADE
+    ├── employee_id           TEXT  NOT NULL  -- retargeted from BIGINT in V117
+    ├── employee_name         VARCHAR(180)     -- denormalised
+    ├── salary_scale          VARCHAR(30)
+    ├── notch_no              INTEGER
+    ├── basic_salary          NUMERIC(18,2)
+    ├── allowances_total      NUMERIC(18,2)
+    ├── gross_pay             NUMERIC(18,2)
+    ├── paye_amount           NUMERIC(18,2)
+    ├── nhima_amount          NUMERIC(18,2)
+    ├── napsa_amount          NUMERIC(18,2)
+    ├── other_deductions      NUMERIC(18,2)
+    ├── total_deductions      NUMERIC(18,2)
+    ├── net_pay               NUMERIC(18,2)
+    ├── authority_code        VARCHAR(50) NOT NULL  -- added V117
+    ├── source_type           VARCHAR(30)           -- added V117: OVERTIME | SALARY_ADVANCE | ALLOWANCE | ...
+    ├── source_reference      VARCHAR(100)          -- added V117: FK to originating workflow row
+    ├── payslip_hash          VARCHAR(64)           -- added V117: SHA-256 of rendered PDF
+    ├── created_at
+    └── UNIQUE (payroll_run_id, employee_id)
+
+    FK: (authority_code, employee_id) REFERENCES employees(authority_code, employee_id)
+        ON DELETE RESTRICT  -- added V117, composite tenant FK
+
+    RLS: FORCE ROW LEVEL SECURITY
+    Policy: payroll_item_tenant_isolation
+            USING  (authority_code = current_setting('app.current_tenant', true))
+            WITH CHECK (same)
+
+**Design note — flat vs line-item.** The payroll contract's original §10.7 proposed an unbounded `payroll_lines` table (one row per earnings/deduction, with `source_type`/`source_reference`). The existing ERP instead uses a flat row per (run, employee) with dedicated columns for each statutory category (`paye_amount`, `nhima_amount`, `napsa_amount`) and a total for other deductions.
+
+**The flat model was retained** (Decision 1a). It is the live model, is queried by other modules, and rewriting it would fragment the codebase. Traceability is added by extending it with `source_type`, `source_reference`, and `payslip_hash` (V117), not by replacing it.
+
+Per-allowance detail lives in `erp_payroll_run_item_allowance` (§10.9).
+
+**Immutability:** payroll lines become immutable once the parent run reaches `COMPLETE` (or equivalent terminal state). There is **no database-level trigger** enforcing this today — the contract's §6.2 model says "corrections via adjustment lines in the next cycle," and this is enforced at the application layer, not the schema. A future trigger can lock the row after run completion. Flagged in §11.
+
+### 10.9 Payroll line allowances — `erp_payroll_run_item_allowance`
+
+    erp_payroll_run_item_allowance
+    ├── id                    BIGSERIAL PRIMARY KEY
+    ├── payroll_run_item_id   BIGINT FK -> erp_payroll_run_item(id) ON DELETE CASCADE
+    ├── allowance_type_id     BIGINT FK -> erp_allowance_type(id)
+    ├── allowance_name        VARCHAR(120)   -- denormalised
+    ├── amount                NUMERIC(18,2)
+    ├── authority_code        VARCHAR(50) NOT NULL  -- added V118
+    └── created_at
+
+    RLS: FORCE ROW LEVEL SECURITY
+    Policy: payroll_item_allowance_tenant_isolation
+            USING  (authority_code = current_setting('app.current_tenant', true))
+            WITH CHECK (same)
+
+**Related (existing, not payroll-engine-owned):** `erp_allowance_type` (V9) is the allowance catalogue. `erp_employee_allowance` (V9) is the per-employee allowance assignment. The payroll engine reads these to build `erp_payroll_run_item_allowance` at compute time.
+
+### 10.10 Payslips — `payslips` (new in V117)
+
+    payslips
+    ├── payslip_id            UUID PRIMARY KEY DEFAULT gen_random_uuid()
+    ├── authority_code        VARCHAR(50) NOT NULL
+    ├── employee_id           TEXT NOT NULL
+    ├── payroll_run_item_id   BIGINT NOT NULL  FK -> erp_payroll_run_item(id)
+    ├── pdf_object_key        TEXT NOT NULL         -- storage key
+    ├── pdf_hash              VARCHAR(64) NOT NULL  -- SHA-256 of the PDF
+    ├── run_hash              VARCHAR(64) NOT NULL  -- hash of the whole run
+    ├── generated_at          TIMESTAMPTZ NOT NULL
+    └── UNIQUE (payroll_run_item_id)
+
+    FK: (authority_code, employee_id) REFERENCES employees(authority_code, employee_id)
+
+    RLS: FORCE ROW LEVEL SECURITY
+    Policy: payslips_tenant_isolation
+            USING  (authority_code = current_setting('app.current_tenant', true))
+            WITH CHECK (same)
+
+    Triggers:
+    - trg_payslips_immutable:  BEFORE UPDATE OR DELETE → raises exception
+    - trg_audit_payslips:      AFTER INSERT → audit_trigger_func()
+
+**This is the payslip header.** It is **immutable** at the database level: any attempt to UPDATE or DELETE raises an exception. Corrections happen via adjustment lines in the next cycle (§6.2), not by editing.
+
+The PDF itself is stored in object storage under `pdf_object_key`. The hash is verified on every download. If the hash mismatches, a tamper alert fires (§6.5).
+
+### 10.11 Compliance rules — `compliance_rule` (new in V119)
+
+The compliance store is a single table with JSONB parameters.
+
+    compliance_rule
+    ├── rule_id               UUID PRIMARY KEY
+    ├── rule_code             VARCHAR(50) NOT NULL  -- PAYE_BANDS, NAPSA_RATE, ...
+    ├── scope                 VARCHAR(20) NOT NULL  -- NATIONAL | TENANT
+    ├── authority_code        VARCHAR(50)           -- NULL for NATIONAL
+    ├── effective_from        DATE NOT NULL
+    ├── effective_to          DATE                  -- NULL = open-ended
+    ├── rule_version          INTEGER NOT NULL DEFAULT 1
+    ├── parameters            JSONB NOT NULL
+    ├── source                VARCHAR(500)
+    ├── notes                 TEXT
+    ├── created_at, created_by
+
+    UNIQUE (rule_code, scope, authority_code, effective_from, rule_version)
+    CHECK  (scope='NATIONAL' AND authority_code IS NULL)
+        OR (scope='TENANT'   AND authority_code IS NOT NULL)
+    CHECK  effective_to IS NULL OR effective_to >= effective_from
+
+    RLS: FORCE ROW LEVEL SECURITY
+    Policies:
+    - compliance_rule_read:  FOR SELECT
+        USING (scope='NATIONAL'
+               OR (scope='TENANT' AND authority_code = current_setting('app.current_tenant', true)))
+    - compliance_rule_write: FOR ALL
+        USING (scope='TENANT' AND authority_code = current_setting('app.current_tenant', true))
+        WITH CHECK (same)
+
+**National rules are readable without a tenant context.** This is deliberate: PAYE bands, NAPSA rates, NHIMA rates, etc. are public law. A status page or public reference tool should be able to query them without being logged in as a specific tenant. Tenant overrides remain scoped to the owning tenant.
+
+**The six seeded 2026 rules** (all `NATIONAL`, all effective 2026-01-01):
+
+| rule_code | base | rate(s) | eligibility | notes |
+|---|---|---|---|---|
+| `PAYE_BANDS` | GROSS_TAXABLE | progressive: 0% ≤ K5,100; 25% ≤ K7,100; 30% ≤ K9,900; 37.5% > K9,900 | all employees | 0% band is effective threshold; NAPSA employee contribution deducted before bands |
+| `NAPSA_RATE` | GROSS | 5% / 5% (employee/employer) | hire_date_on_or_after 2000-03-01 | ceiling K3,723.60 for 2026; max employer contribution K1,861.80 |
+| `NHIMA_RATE` | BASIC_PRORATED | 1% / 1% | all employees | |
+| `LASF_RATE` | BASIC_PRORATED | 10% / 23% | hire_date_before 2000-03-01 | remit by 7th; 4% p.a. late interest |
+| `GRZ_FUNERAL` | BASIC_PRORATED | 0.4% / 0.6% | all employees | optional parent extension tiers in `parameters.extensions` |
+| `SALARY_PRORATION` | — | — | — | denominator CALENDAR_DAYS, per T&C Clause 87 |
+
+**Mutual exclusivity — LASF vs NAPSA:** these are **mutually exclusive**, based on `employees.date_of_first_appointment`. The engine derives the applicable scheme at compute time:
+
+- `date_of_first_appointment < 2000-03-01` → LASF applies, NAPSA does not
+- `date_of_first_appointment >= 2000-03-01` → NAPSA applies, LASF does not
+
+No employee may contribute to both. The `eligibility` block in each rule's JSONB encodes this for audit.
+
+**The old `erp_payroll_statutory_rate` (V9) is superseded.** It's a flat table with three rows (PAYE, NAPSA, NHIMA) and no effective-dating or band support. The engine ignores it. It will be dropped in a future cleanup migration (see §11).
+
+### 10.12 Claims — **no unified claims table**
+
+The payroll contract's original §10.11 proposed a unified `claims` table. This was **not adopted** because two separate workflow tables already exist and are actively used:
+
+- **`salary_advance_request`** (V5) — the salary advance workflow
+- **`overtime_sessions`** (V31, extended V36) — the overtime workflow
+
+Both have their own approval chains, their own status enums, and their own audit trails. They feed `erp_payroll_run_item` as follows:
+
+| Workflow | Emits to payroll via |
+|---|---|
+| Salary advance | `salary_advance_deduction` (V6) → engine reads `PENDING` deductions for the cycle → creates `erp_payroll_run_item.other_deductions` line with `source_type='SALARY_ADVANCE'` |
+| Overtime | `overtime_sessions` with `status='approved'` → engine creates `erp_payroll_run_item.allowances_total` line with `source_type='OVERTIME'` |
+
+The payroll engine **reads** these workflow tables at compute time. It does not duplicate them.
+
+### 10.13 Chart of accounts and general ledger
+
+**Chart of accounts** — `mofnp_chart_of_accounts` (V105, 799 accounts) and `mofnp_*` reference tables (V103).
+
+**General ledger** — `journal_entry` and `journal_line` (V60). The payroll engine produces GL journal lines at run completion:
+
+- Debit: Salaries expense (from `mofnp_chart_of_accounts` classification 2)
+- Credit: PAYE payable, NAPSA payable, NHIMA payable, LASF payable, Net pay payable
+- Credit: Employer contributions (separate accounts)
+
+**Not** `gl_journal_entries`. That table does not exist; the real table is `journal_line` under `journal_entry`.
+
+### 10.14 Audit — `audit_event` + hash chain
+
+The ERP has a **live, hash-chained audit system** built in V65–V97:
+
+- `audit_event` table — append-only, hash-chained (`previous_hash`, `record_hash`, `sequence_number`)
+- `audit_trigger_func()` — the generic trigger that writes to `audit_event`
+- `log_audit_event(...)` — the function for manual audit writes
+- `verify_audit_chain(...)`, `audit_health_check(...)`, `audit_summary(...)` — verification functions
+- `audit_retention_policy`, `audit_event_archive` — retention (V76)
+
+**Every payroll-table change feeds this same chain.** The payroll engine **does not** build a parallel audit system. This is the §8 "hash chain" of the contract — it already exists.
+
+Payroll tables with audit triggers:
+
+| Table | Trigger |
+|---|---|
+| `employees` | `trg_audit_employees` (V102) |
+| `authorities`, `provinces`, `council_types`, `id_sequence` | V101 |
+| `payslips` | `trg_audit_payslips` (V117, AFTER INSERT only — immutability handled separately) |
+| All other ERP tables (fund, cost_center, chart_of_accounts, fiscal_year, journal_entry, journal_line, ar_*, ap_*, mofnp_*) | V71, V78, V85 |
+
+`erp_payroll_run_item`, `erp_payroll_run`, `erp_payroll_period`, and `erp_payroll_run_item_allowance` currently **do not** have audit triggers attached. Adding them is a follow-up migration (flagged in §11).
+
+**Immutability.** `payslips` is protected by a `BEFORE UPDATE OR DELETE` trigger (`forbid_payslip_mutation`) that raises an exception. `audit_event` is protected by `prevent_audit_event_modification()` (V65). No other payroll table is currently locked against UPDATE.
+
+### 10.15 RLS — phased rollout
+
+Multi-tenant isolation via Row Level Security is being introduced **in phases**. The payroll module is now complete; HR follows.
+
+**Current state (V119):**
+
+| Table | RLS | Policy |
+|---|---|---|
+| `payslips` | ENABLED, FORCED | `payslips_tenant_isolation` |
+| `erp_payroll_run_item` | ENABLED, FORCED | `payroll_item_tenant_isolation` |
+| `erp_payroll_run` | ENABLED, FORCED | `payroll_run_tenant_isolation` |
+| `erp_payroll_period` | ENABLED, FORCED | `payroll_period_tenant_isolation` |
+| `erp_payroll_run_item_allowance` | ENABLED, FORCED | `payroll_item_allowance_tenant_isolation` |
+| `compliance_rule` | ENABLED, FORCED | `compliance_rule_read`, `compliance_rule_write` (see §10.11) |
+
+**Pattern (uniform for all payroll tables):**
+
+    USING      (authority_code = current_setting('app.current_tenant', true))
+    WITH CHECK (authority_code = current_setting('app.current_tenant', true))
+
+The `current_setting(..., true)` form returns NULL when the tenant context is unset. NULL = authority_code is always false, so an unauthenticated session sees **zero rows**. This is fail-closed by design.
+
+**`FORCE ROW LEVEL SECURITY`** makes the policy apply even to the table owner — otherwise the migration role (postgres superuser) would bypass it during development and mask defects. Note: superusers with `BYPASSRLS` still bypass regardless; testing must use a non-superuser role.
+
+**The application sets tenant context per transaction:**
+
+    SET LOCAL app.current_tenant = '<authority_code>';
+
+`LOCAL` is critical. Without it, in a connection-pool environment, tenant A's context can leak to tenant B on the next request.
+
+**Remaining phases:**
+
+- **V120+** — Spring `TenantContextFilter` to set `app.current_tenant` at the start of every request. Without this, the payroll engine cannot actually use the RLS.
+- **V121+** — RLS on HR tables: `employees`, `employment_history`, `salary_advance_*`, `overtime_*`, `commuted_overtime`, `public_holidays`, `work_locations`.
+- **Final state** — every table with `authority_code` carries RLS. Tracked in §11.
+
+### 10.16 Views
+
+Three views are planned but **not yet created**:
+
+- **`v_employee_payslips`** — self-service payslip summary (joins `payslips` + `erp_payroll_period` + `employees`)
+- **`v_cutoff_watch`** — daily HR dashboard of claims at risk of missing cutoff (joins `salary_advance_request` + `overtime_sessions` + `erp_payroll_period`)
+- **`v_cycle_employer_cost`** — per-cycle rollup of gross, deductions, employer contributions, total cost
+
+These are safe additions in a future migration; they do not affect current behavior.
+
+### 10.17 Triggers (payroll-related)
+
+| Trigger | Table | Fires | Function |
+|---|---|---|---|
+| `trg_payslips_immutable` | `payslips` | BEFORE UPDATE OR DELETE | `forbid_payslip_mutation()` |
+| `trg_audit_payslips` | `payslips` | AFTER INSERT | `audit_trigger_func()` |
+| `trg_audit_employees` | `employees` | AFTER INSERT/UPDATE/DELETE | `audit_trigger_func()` |
+| `trg_audit_authorities` | `authorities` | AFTER INSERT/UPDATE/DELETE | `audit_trigger_func()` |
+| `trg_audit_id_sequence` | `id_sequence` | AFTER INSERT/UPDATE/DELETE | `audit_trigger_func()` |
+
+**Missing audit triggers** (flagged in §11): `erp_payroll_run`, `erp_payroll_period`, `erp_payroll_run_item`, `erp_payroll_run_item_allowance`.
+
+### 10.18 Partitioning
+
+**Not implemented.** The original contract's §10.17 proposed partitioning by year on `payroll_lines`, `payslips`, `payslip_lines`, `gl_journal_entries`, `audit_log`, `compliance_rule_change_log`. This is deferred until data volumes justify it (currently tens of thousands of rows, not tens of millions).
+
+Partitioning is an additive change, not a redesign. When it's needed, the migration can convert `payslips` and `erp_payroll_run_item` to declaratively partitioned tables without changing the application queries.
+
+### 10.19 Summary — what exists vs what's needed
+
+| Concept (§10 in original contract) | Real schema today | Status |
+|---|---|---|
+| `authority` (tenant) | `authorities` + `provinces` + `council_types` + `id_sequence` | ✅ exists |
+| `employees` | `employees` (merged, PII-hardened, tenant-scoped) | ✅ exists |
+| `employment_history` | `employment_history` (FK to `erp_employee` broken) | ⚠ exists, needs FK fix |
+| `salary_scale_official` | `salary_scales_official` + `erp_salary_notch_value` + `erp_employee_salary_notch` | ✅ exists; notch assignment FK broken |
+| `payroll_cycles` | `erp_payroll_period` | ✅ exists, RLS added V118 |
+| `payroll_runs` | `erp_payroll_run` | ✅ exists, RLS added V118 |
+| `payroll_lines` | `erp_payroll_run_item` (flat model) | ✅ exists, extended V117, RLS added V117 |
+| `payslips` | `payslips` | ✅ added V117 |
+| `payslip_lines` | `erp_payroll_run_item_allowance` | ✅ exists, RLS added V118 |
+| `compliance_rule` | `compliance_rule` | ✅ added V119 |
+| `compliance_rule_change_log` | `compliance_rule_change_log` (V1_0_3) + `audit_event` (V65) | ✅ both exist |
+| `claims` | `salary_advance_request` + `overtime_sessions` | ✅ exist as separate workflows |
+| `mofnp_chart_of_accounts` | `mofnp_chart_of_accounts` | ✅ exists |
+| `gl_journal_entries` | `journal_line` under `journal_entry` | ✅ exists |
+| `audit_log` | `audit_event` + `audit_trigger_func` | ✅ exists |
+| RLS on all tables | Payroll module complete; HR pending | 🟡 phased |
+| Immutability triggers | `payslips`, `audit_event` locked | ✅ partial (payroll lines not yet) |
+| Partitioning | — | 🔲 deferred |
+
+**"Needs follow-up" items are tracked in §11.**
+
 ---
 
 ## 11. Open questions
 
 These are the decisions that are **still to be confirmed**. Each one has an owner, a target resolution date, and the section of the document that will change once resolved. Nothing in this list blocks initial development — the engine has a documented default for every one of them.
 
-| # | Question | Default if unresolved | Owner | Target | Affects |
-|---|---|---|---|---|---|
-| Q1 | Which pro-ration denominator applies? `FIXED_30`, `FIXED_26`, `WORKING_DAYS`, or `CALENDAR_DAYS`? | `FIXED_30` | HR / LGSC liaison | Before first live cycle | §4.2.1 |
-| Q2 | Is there a NAPSA ceiling on the employee contribution, and if so, what is it for 2026? | Apply rate to full gross; no ceiling | Finance | Before first live cycle | §4.4 |
-| Q3 | Does LASF apply to all employees, or only to a subset (e.g. those on permanent establishment)? | Apply to all employees on the payroll | HR | Before first live cycle | §4.4 |
+| # | Question | Default if unresolved | Owner | Target | Affects | Resolution |
+|---|---|---|---|---|---|---|
+| Q1 | Which pro-ration denominator applies? | `FIXED_30` | HR / LGSC liaison | Before first live cycle | §4.2.1 | **RESOLVED:** `CALENDAR_DAYS`, per T&C Clause 87. |
+| Q2 | Is there a NAPSA ceiling on the employee contribution? | Apply rate to full gross; no ceiling | Finance | Before first live cycle | §4.4 | **RESOLVED:** K3,723.60 for 2026 (K2,881.40/2023, K2,981.60/2024, K3,416.40/2025). |
+| Q3 | Does LASF apply to all employees, or only to a subset? | Apply to all employees on the payroll | HR | Before first live cycle | §4.4 | **RESOLVED:** LASF 10%/23% on basic, applies to employees hired before 2000-03-01 only. Post-2000 hires are on NAPSA. Mutually exclusive. |
 | Q4 | Overtime multiplier for public holidays — 2.0x or 2.5x? | 2.0x | HR | Before first live cycle | §8.3 |
 | Q5 | Should employer contributions appear on the employee-facing payslip, or only on an internal cost report? | Show on payslip (as in §6.1) | Finance | Before first live cycle | §6.1 |
 | Q6 | Retention for payslip PDFs — 60 years is the working assumption, but is that the LGSC requirement or a PFM Act requirement? | 60 years | Legal | Before production cutover | §6.4 |
@@ -1306,6 +1289,13 @@ These are the decisions that are **still to be confirmed**. Each one has an owne
 | Q13 | Is there a legal requirement to issue payslips in a language other than English? | English only for the payslip; SMS notices may be localised | Legal | Before production cutover | §9.6 |
 | Q14 | What is the SLA for HR response to a cutoff-watch warning? | 24 hours | HR | Before first live cycle | §5.5 |
 | Q15 | Do contractors and interns go through the same engine, or a separate schedule? | Same engine, treated as employees with `status = 'ACTIVE'` | HR | Before first live cycle | §4.1 |
+| Q16 | Should `employment_history.officer_id` FK be retargeted to `employees(employee_id)`, or should the table be archived? | Retarget in a future HR Core migration | HR Core | Next HR Core migration | §10.4 | **OPEN.** FK to `erp_employee` is broken after V115 dropped that table. `employment_history` is a **synced table** of the national LGIMS (Local Government Management Information System); the authoritative join key is `employees.local_authority_service_number` (LAS number), not `employee_id`. The API sync between ERP and LGIMS is an **HR Core** concern, not finance-core. The FK retarget decision depends on whether the ERP treats LGIMS as source-of-truth (then FK → `local_authority_service_number`) or as a peer (then a mapping table is needed). Deferred to HR Core design. |
+| Q17 | Same question for `erp_employee_salary_notch.employee_id` | Retarget to `employees(employee_id)` | HR Core | Next HR Core migration | §10.5 | **RESOLVED.** Retarget to `employees(employee_id)`, not to LAS number. Salary notch is an internal payroll concept, unrelated to LGIMS sync. |
+| Q18 | Should `erp_payroll_run_item` become immutable at the database level once its parent run reaches COMPLETE? | Application-layer enforcement only | Engineering | V120+ | §10.8 | **RESOLVED.** No DB-level immutability trigger. International practice is audit trail + application-layer locking, not DB hard-lock. `payslips` remains the only DB-immutable payroll artefact (as the financial document of record). `erp_payroll_run_item` gets an audit trigger (Q19) and application-layer `run_status` guard. |
+| Q19 | Should audit triggers be added to `erp_payroll_run`, `erp_payroll_period`, `erp_payroll_run_item`, `erp_payroll_run_item_allowance`? | Add in V120+ | Engineering | V120+ | §10.14 | **RESOLVED.** Yes. V120 adds `trg_audit_payroll_run`, `trg_audit_payroll_period`, `trg_audit_payroll_item`, `trg_audit_payroll_item_allowance` — all calling `audit_trigger_func()`. Rationale: audit trail is the international standard for financial system traceability (ISO 5405:2024); current absence is a gap. |
+| Q20 | When should `erp_payroll_statutory_rate` (V9, superseded by `compliance_rule`) be dropped? | Drop once no code references it | Engineering | V120 or V121 | §10.11 | **RESOLVED.** Drop in V120 or V121 after confirming no Java code references it (grep service/repository layers). Table is dead but harmless today. |
+| Q21 | Should `erp_payroll_run` add an `idempotency_key` + partial unique index for RUNNING state (per §5.2/§5.3)? | Add in V120+ | Engineering | V120+ | §5.2, §5.3, §10.7 | **RESOLVED.** V120 adds `idempotency_key VARCHAR(128) UNIQUE` on `erp_payroll_run`, plus partial unique index `UNIQUE (payroll_period_id) WHERE run_status IN ('PROCESSING','COMPLETE','PAID')`. Rationale: prevents duplicate payroll generation for the same period — industry standard for payment API idempotency. |
+| Q22 | Does ZRA require NAPSA employee contribution to be deducted before applying PAYE bands? | Assumed yes | Finance | Before first live cycle | §10.11 | **RESOLVED.** Yes — confirmed by ZRA PAYE calculator and multiple industry references. NAPSA employee contribution is deducted from gross before PAYE bands are applied. The engine's `PAYE_BANDS.parameters.taxable_income_formula` already encodes this. |
 
 Open questions are tracked in the project's issue tracker. This table is a snapshot; the tracker is authoritative.
 
@@ -1406,6 +1396,8 @@ This contract is versioned with the engine. The engine records its `engine_versi
 | 0.3 | 2026-10-13 | Engineering | Added Sections 7–9 (multi-tenancy, audit and compliance, non-functional requirements). |
 | 0.4 | 2026-10-13 | Engineering | Added Section 10 (full SQL DDL, RLS, views, triggers, partitioning). |
 | 1.0 | 2026-10-16 | Engineering | Added Sections 11–12 (open questions, workflow contract) and change log. Document declared complete. |
+| 1.1 | 2026-10-18 | Engineering | §10 rewritten to reflect merged schema (V1–V119). §4.4 LASF/NHIMA bases corrected from gross to basic. §11 Q1–Q3 resolved; Q16–Q22 added. Document now tracks the real schema, not a greenfield design. |
+| 1.2 | 2026-10-18 | Engineering | §11 Q16–Q22 resolved. Q16 flagged as HR Core concern (LGIMS API sync via LAS number). Q18/Q19/Q21 align with international practices (audit trail + app-layer immutability + idempotency key). Q22 confirmed by ZRA guidance. V120 migration will implement Q17, Q19, Q20, Q21. |
 
 ---
 
