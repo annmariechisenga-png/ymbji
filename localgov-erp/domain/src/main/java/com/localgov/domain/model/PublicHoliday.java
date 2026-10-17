@@ -26,7 +26,7 @@ public class PublicHoliday {
     private String name;
 
     /** NULL = national; set for authority-specific holidays */
-    @Column(name = "authority_code", length = 10)
+    @Column(name = "authority_code", length = 50)
     private String authorityCode;
 
     @Column(name = "created_at", nullable = false)

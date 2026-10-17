@@ -33,7 +33,7 @@ public class VacationLeaveAllowance {
     @Column(name = "leave_request_id")
     private Long leaveRequestId;
 
-    @Column(name = "authority_code", length = 10)
+    @Column(name = "authority_code", length = 50)
     private String authorityCode;
 
     @Enumerated(EnumType.STRING)

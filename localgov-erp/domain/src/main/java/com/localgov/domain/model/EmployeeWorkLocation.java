@@ -25,7 +25,7 @@ public class EmployeeWorkLocation {
     @Column(name = "location_id", nullable = false)
     private Long locationId;
 
-    @Column(name = "authority_code", nullable = false, length = 10)
+    @Column(name = "authority_code", nullable = false, length = 50)
     private String authorityCode;
 
     @Column(name = "is_primary", nullable = false)

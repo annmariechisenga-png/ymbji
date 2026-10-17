@@ -30,7 +30,7 @@ public class WorkLocation {
     @Column(name = "location_type", nullable = false, length = 30)
     private String locationType;
 
-    @Column(name = "authority_code", nullable = false, length = 10)
+    @Column(name = "authority_code", nullable = false, length = 50)
     private String authorityCode;
 
     @Column(nullable = false, precision = 10, scale = 8)
