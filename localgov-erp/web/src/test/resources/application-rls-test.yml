@@ -1,0 +1,29 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    clean-disabled: true
+
+# Test-only PII keys. DO NOT use in production.
+# Both decode to exactly 32 bytes as required by PiiEncryptionServiceImpl.
+# Values are base64(x*32) and base64(y*32) — deterministic test fixtures.
+pii:
+  encryption:
+    key: "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg="
+  hmac:
+    key: "eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXk="
+
+app:
+  leave:
+    use-calculation-api: true
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    org.springframework.jdbc.core.JdbcTemplate: DEBUG
