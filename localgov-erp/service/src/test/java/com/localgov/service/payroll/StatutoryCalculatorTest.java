@@ -248,9 +248,11 @@ class StatutoryCalculatorTest {
     // -----------------------------------------------------------------
 
     private void stubFirstAppointment(LocalDate date) {
+        // StatutoryCalculator.loadFirstAppointment now reads as Object.class
+        // (JDBC returns java.sql.Date for DATE columns, not LocalDate).
         when(jdbcTemplate.queryForList(
                 contains("FROM employees"),
-                eq(LocalDate.class), any(), any()))
+                eq(Object.class), any(), any()))
             .thenReturn(List.of(date));
     }
 

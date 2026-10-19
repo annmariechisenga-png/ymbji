@@ -68,8 +68,8 @@ public class SalaryResolver {
         Map<String, Object> emp = loadEmployee(employeeId, authorityCode);
         String salaryScale = (String) emp.get("salary_scale");
         Integer notchNo = (Integer) emp.get("current_notch");
-        LocalDate hireDate = (LocalDate) emp.get("date_reported");
-        LocalDate terminationDate = (LocalDate) emp.get("termination_date");
+        LocalDate hireDate = toLocalDate(emp.get("date_reported"));
+        LocalDate terminationDate = toLocalDate(emp.get("termination_date"));
 
         if (notchNo == null) {
             throw new PayrollEngineException(
@@ -188,6 +188,17 @@ public class SalaryResolver {
             default -> throw new PayrollEngineException(
                 "Unsupported proration rule: " + rule);
         };
+    }
+
+    /**
+     * JDBC returns java.sql.Date for DATE columns; convert to LocalDate.
+     */
+    static LocalDate toLocalDate(Object value) {
+        if (value == null) return null;
+        if (value instanceof LocalDate ld) return ld;
+        if (value instanceof java.sql.Date sqlDate) return sqlDate.toLocalDate();
+        throw new PayrollEngineException(
+            "Cannot convert " + value.getClass().getName() + " to LocalDate");
     }
 
     private BigDecimal normalizeMoney(BigDecimal value) {

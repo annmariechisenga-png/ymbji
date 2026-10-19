@@ -149,11 +149,19 @@ public class StatutoryCalculator {
     // -----------------------------------------------------------------
 
     private LocalDate loadFirstAppointment(String employeeId, String authorityCode) {
-        List<LocalDate> rows = jdbcTemplate.queryForList(
+        // JDBC returns java.sql.Date for DATE columns even when requesting
+        // LocalDate.class; read as Object and convert.
+        List<Object> rows = jdbcTemplate.queryForList(
             "SELECT date_of_first_appointment FROM employees " +
             "WHERE employee_id = ? AND authority_code = ?",
-            LocalDate.class, employeeId, authorityCode);
-        return rows.isEmpty() ? null : rows.get(0);
+            Object.class, employeeId, authorityCode);
+        if (rows.isEmpty()) return null;
+        Object value = rows.get(0);
+        if (value == null) return null;
+        if (value instanceof LocalDate ld) return ld;
+        if (value instanceof java.sql.Date sqlDate) return sqlDate.toLocalDate();
+        throw new PayrollEngineException(
+            "Cannot convert " + value.getClass().getName() + " to LocalDate");
     }
 
     private JsonNode loadRule(String ruleCode, LocalDate asOf) {
