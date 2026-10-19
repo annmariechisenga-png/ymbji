@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -80,26 +81,51 @@ public class PayrollEngineService {
      */
     public PayrollRunResult computePayroll(long payrollPeriodId, String idempotencyKey) {
 
-        // 1. Load period
-        Map<String, Object> period = loadPeriod(payrollPeriodId);
-        String authorityCode = (String) period.get("authority_code");
-        String cycleCode = (String) period.get("period_code");
-        LocalDate periodStart = toLocalDate(period.get("period_start"));
-        LocalDate periodEnd = toLocalDate(period.get("period_end"));
-        Boolean isClosed = (Boolean) period.get("is_closed");
+        // ---- PRE-WRITE SECTION ----------------------------------------
+        // Failures here are converted to a failure result rather than
+        // thrown, so the enclosing transaction (set up by
+        // TenantTransactionBinder) can commit cleanly. Throwing marks
+        // it rollback-only and produces UnexpectedRollbackException on
+        // the filter's commit, even when the controller returns a clean
+        // 4xx. See PayrollRunResult's Javadoc.
 
-        if (Boolean.TRUE.equals(isClosed)) {
-            throw new PayrollEngineException(
-                "Period " + cycleCode + " is closed");
+        Map<String, Object> period;
+        String authorityCode;
+        String cycleCode;
+        LocalDate periodStart;
+        LocalDate periodEnd;
+
+        try {
+            // 1. Load period
+            period = loadPeriod(payrollPeriodId);
+            authorityCode = (String) period.get("authority_code");
+            cycleCode = (String) period.get("period_code");
+            periodStart = toLocalDate(period.get("period_start"));
+            periodEnd = toLocalDate(period.get("period_end"));
+            Boolean isClosed = (Boolean) period.get("is_closed");
+
+            if (Boolean.TRUE.equals(isClosed)) {
+                return PayrollRunResult.failure(
+                    cycleCode, "Period " + cycleCode + " is closed");
+            }
+
+            // 2. Check idempotency
+            PayrollRunResult existing = findExistingRun(authorityCode, idempotencyKey);
+            if (existing != null) {
+                log.info("Idempotent replay: run {} for period {} already exists",
+                    existing.runId(), cycleCode);
+                return existing;
+            }
+        } catch (PayrollEngineException e) {
+            log.warn("Payroll pre-write failure for period {}: {}",
+                payrollPeriodId, e.getMessage());
+            return PayrollRunResult.failure(null, e.getMessage());
         }
 
-        // 2. Check idempotency
-        PayrollRunResult existing = findExistingRun(authorityCode, idempotencyKey);
-        if (existing != null) {
-            log.info("Idempotent replay: run {} for period {} already exists",
-                existing.runId(), cycleCode);
-            return existing;
-        }
+        // ---- WRITE SECTION --------------------------------------------
+        // From here on, any exception propagates and rolls back the run.
+        // A mid-run failure is a 500, not a 422 — the PROCESSING row
+        // must not survive a crash.
 
         // 3. Create run header (PROCESSING)
         String runCode = "RUN-" + cycleCode + "-" + System.currentTimeMillis();
@@ -230,7 +256,7 @@ public class PayrollEngineService {
         log.info("Payroll run complete: {} — {} employees, gross {}, net {}, hash {}",
             runCode, employees.size(), grossTotal, netTotal, runHash);
 
-        return new PayrollRunResult(
+        return PayrollRunResult.success(
             UUID.fromString(runUuid),
             cycleCode,
             employees.size(),
@@ -266,7 +292,7 @@ public class PayrollEngineService {
             return null;
         }
         Map<String, Object> r = rows.get(0);
-        return new PayrollRunResult(
+        return PayrollRunResult.success(
             (UUID) r.get("run_uuid"),
             (String) r.get("run_code"),
             ((Number) r.get("total_employees")).intValue(),
