@@ -1,5 +1,7 @@
 package com.localgov.service.payroll.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.math.BigDecimal;
 import java.util.UUID;
 
@@ -48,6 +50,7 @@ public record PayrollRunResult(
                 BigDecimal.ZERO, BigDecimal.ZERO, null, errorMessage);
     }
 
+    @JsonIgnore
     public boolean isSuccess() {
         return errorMessage == null;
     }

@@ -181,7 +181,9 @@ class PayrollControllerIntegrationTest {
             .containsIgnoringCase("not found");
         assertThat(node.get("runHash").isNull()).isTrue();
         assertThat(node.get("runId").isNull()).isTrue();
-        assertThat(node.get("success").asBoolean()).isFalse();
+        // isSuccess() is @JsonIgnore — the derived 'success' field
+        // must not appear in the JSON contract.
+        assertThat(node.has("success")).isFalse();
     }
 
     @Test
