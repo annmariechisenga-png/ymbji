@@ -124,9 +124,31 @@ class PayrollControllerIntegrationTest {
         assertThat(result.get("runHash").asText()).hasSize(64);
 
         Map<String, Object> run = jdbc.queryForMap(
-            "SELECT run_status, total_employees FROM erp_payroll_run WHERE authority_code = 'CHILANGA'");
+            "SELECT run_status, total_employees, run_hash " +
+            "FROM erp_payroll_run WHERE authority_code = 'CHILANGA'");
         assertThat(run.get("run_status")).isEqualTo("COMPLETE");
         assertThat(((Number) run.get("total_employees")).intValue()).isEqualTo(1);
+
+        // Payslip row: real PDF key + hash, chained to the run_hash
+        Map<String, Object> payslip = jdbc.queryForMap(
+            "SELECT pdf_object_key, pdf_hash, run_hash FROM payslips " +
+            "WHERE employee_id = 'EMP-001' AND authority_code = 'CHILANGA'");
+
+        assertThat(payslip.get("pdf_object_key"))
+            .asString()
+            .startsWith("CHILANGA/")
+            .endsWith("/EMP-001.pdf");
+
+        assertThat(payslip.get("pdf_hash"))
+            .asString()
+            .matches("^[0-9a-f]{64}$");
+
+        assertThat(payslip.get("run_hash"))
+            .asString()
+            .matches("^[0-9a-f]{64}$");
+
+        // The payslip's run_hash must equal the run's run_hash (chain integrity)
+        assertThat(payslip.get("run_hash")).isEqualTo(run.get("run_hash"));
     }
 
     @Test
