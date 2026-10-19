@@ -58,6 +58,14 @@ public class PayslipRenderer {
     private static final Font FONT_SMALL =
         FontFactory.getFont(FontFactory.HELVETICA, 6.5f);
 
+    /** "01 Oct 2026" — used for period start / end dates. */
+    private static final java.time.format.DateTimeFormatter DATE_FMT =
+        java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy", java.util.Locale.ENGLISH);
+
+    /** "October 2026" — used for the period header. */
+    private static final java.time.format.DateTimeFormatter MONTH_YEAR_FMT =
+        java.time.format.DateTimeFormatter.ofPattern("MMMM yyyy", java.util.Locale.ENGLISH);
+
     private static final String DASH = "\u2014";  // em dash for null fields
 
     private final ObjectStorage storage;
@@ -130,9 +138,15 @@ public class PayslipRenderer {
             infoCell.addElement(addr);
         }
 
+        String periodLabel = data.periodStart() == null
+            ? nvl(data.periodCode())
+            : data.periodStart().format(MONTH_YEAR_FMT);
+        String periodRange = (data.periodStart() != null && data.periodEnd() != null)
+            ? "  (" + data.periodStart().format(DATE_FMT)
+                   + " \u2013 " + data.periodEnd().format(DATE_FMT) + ")"
+            : "";
         Paragraph subtitle = new Paragraph(
-            "PAY STATEMENT  \u2014  " + nvl(data.periodCode())
-                + "  (" + data.periodStart() + " to " + data.periodEnd() + ")",
+            "PAY STATEMENT  \u2014  " + periodLabel + periodRange,
             FONT_HEADER);
         subtitle.setAlignment(Element.ALIGN_CENTER);
         infoCell.addElement(subtitle);
