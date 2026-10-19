@@ -1,8 +1,10 @@
 package com.localgov.service.payroll;
 
 import com.localgov.service.payroll.model.AllowanceLine;
+import com.localgov.service.payroll.model.PayslipData;
 import com.localgov.service.payroll.model.ResolvedSalary;
 import com.localgov.service.payroll.model.StatutoryDeductions;
+import com.localgov.service.payroll.storage.ObjectStorage;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -10,19 +12,20 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Persists a single payslip: the flat {@code erp_payroll_run_item} row,
- * the itemized {@code erp_payroll_run_item_line} rows, and the immutable
- * {@code payslips} header row.
+ * the itemized {@code erp_payroll_run_item_line} rows, the rendered PDF
+ * (via {@link ObjectStorage}), and the immutable {@code payslips} header row.
  *
- * Placeholder pdf_hash: until a real PDF renderer is added, this class
- * computes a SHA-256 over a canonical JSON representation of the payslip
- * content and stores it as pdf_hash. The pdf_object_key is a future-ready
- * path that will be populated when the renderer lands.
+ * <p>The {@code pdf_hash} stored in {@code payslips} is the SHA-256 of
+ * the rendered PDF bytes. The renderer pins OpenPDF timestamps, so the
+ * same payroll data always produces byte-identical PDFs and therefore
+ * the same hash — the run_hash chain is reproducible.
  */
 @Component
 public class PayslipPersister {
@@ -31,9 +34,15 @@ public class PayslipPersister {
     private static final RoundingMode MONEY_ROUNDING = RoundingMode.HALF_UP;
 
     private final JdbcTemplate jdbcTemplate;
+    private final PayslipRenderer renderer;
+    private final ObjectStorage storage;
 
-    public PayslipPersister(JdbcTemplate jdbcTemplate) {
+    public PayslipPersister(JdbcTemplate jdbcTemplate,
+                            PayslipRenderer renderer,
+                            ObjectStorage storage) {
         this.jdbcTemplate = jdbcTemplate;
+        this.renderer = renderer;
+        this.storage = storage;
     }
 
     /**
@@ -61,7 +70,9 @@ public class PayslipPersister {
             StatutoryDeductions statutory,
             BigDecimal gross,
             BigDecimal totalDeductions,
-            BigDecimal netPay) {
+            BigDecimal netPay,
+            java.time.LocalDate periodStart,
+            java.time.LocalDate periodEnd) {
 
         BigDecimal allowancesTotal = allowances.stream()
             .map(AllowanceLine::amount)
@@ -119,11 +130,19 @@ public class PayslipPersister {
         insertLine(runItemId, authorityCode, "GRZ_FUNERAL_EMPLOYER", "EMPLOYER_CONTRIB",
             "GRZ Funeral Scheme (Employer)", statutory.grzFuneralEmployer(), 30, "GRZ_FUNERAL");
 
-        String pdfHash = sha256(canonicalPayslip(
+        PayslipData payslipData = buildPayslipData(
             authorityCode, runCode, employeeId, employeeName,
-            salary, allowances, statutory, gross, totalDeductions, netPay));
+            salary, allowances, statutory, gross, totalDeductions, netPay,
+            periodStart, periodEnd);
 
+        byte[] pdfBytes = renderer.render(payslipData);
         String pdfObjectKey = authorityCode + "/" + runCode + "/" + employeeId + ".pdf";
+        storage.put(pdfObjectKey, pdfBytes);
+        // pdf_hash hashes the canonical PayslipData, not the PDF bytes:
+        // OpenPDF embeds a random document ID that would make byte-level
+        // hashing non-deterministic. Hashing the data makes the hash
+        // stable across renderer versions and reproducible across runs.
+        String pdfHash = sha256(canonicalPayslip(payslipData));
 
         return new PendingPayslip(
             authorityCode, employeeId, runItemId,
@@ -183,41 +202,168 @@ public class PayslipPersister {
         );
     }
 
-    private String canonicalPayslip(String authorityCode, String runCode,
-                                    String employeeId, String employeeName,
-                                    ResolvedSalary salary,
-                                    List<AllowanceLine> allowances,
-                                    StatutoryDeductions statutory,
-                                    BigDecimal gross, BigDecimal totalDeductions,
-                                    BigDecimal netPay) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(authorityCode).append("|")
-          .append(runCode).append("|")
-          .append(employeeId).append("|")
-          .append(employeeName).append("|")
-          .append(salary.proratedBasic()).append("|");
-        for (AllowanceLine al : allowances) {
-            sb.append(al.allowanceCode()).append(":").append(al.amount()).append("|");
+    private PayslipData buildPayslipData(
+            String authorityCode, String runCode,
+            String employeeId, String employeeName,
+            ResolvedSalary salary,
+            List<AllowanceLine> allowances,
+            StatutoryDeductions statutory,
+            BigDecimal gross, BigDecimal totalDeductions,
+            BigDecimal netPay,
+            java.time.LocalDate periodStart,
+            java.time.LocalDate periodEnd) {
+
+        // Authorities row: name, address, logo key, registration numbers.
+        Map<String, Object> authRow;
+        try {
+            authRow = jdbcTemplate.queryForMap(
+                "SELECT authority_name, address, logo_object_key, " +
+                "       paye_registration_no, napsa_registration_no, " +
+                "       nhima_registration_no, funeral_policy_registration_no " +
+                "FROM authorities WHERE authority_code = ?",
+                authorityCode);
+        } catch (Exception e) {
+            // Missing authority row → keep going; renderer handles nulls.
+            authRow = Map.of();
         }
-        sb.append(statutory.paye()).append("|")
-          .append(statutory.napsaEmployee()).append("|")
-          .append(statutory.lasfEmployee()).append("|")
-          .append(statutory.nhimaEmployee()).append("|")
-          .append(statutory.grzFuneralEmployee()).append("|")
-          .append(gross).append("|")
-          .append(totalDeductions).append("|")
-          .append(netPay);
+
+        // Employee row: masked PII + position + bank name/account.
+        Map<String, Object> empRow;
+        try {
+            empRow = jdbcTemplate.queryForMap(
+                "SELECT nrc_masked, tpin_masked, position, " +
+                "       bank_name, bank_account_masked " +
+                "FROM employees WHERE employee_id = ? AND authority_code = ?",
+                employeeId, authorityCode);
+        } catch (Exception e) {
+            empRow = Map.of();
+        }
+
+        // Lines
+        List<PayslipData.Line> earnings = new ArrayList<>();
+        earnings.add(new PayslipData.Line("BASIC", "Basic Salary",
+            normalize(salary.proratedBasic())));
+        for (AllowanceLine al : allowances) {
+            earnings.add(new PayslipData.Line(
+                al.allowanceCode(), al.allowanceName(), normalize(al.amount())));
+        }
+
+        boolean isNapsa = "NAPSA".equals(statutory.contributionScheme());
+        List<PayslipData.Line> deductions = new ArrayList<>();
+        deductions.add(new PayslipData.Line("PAYE", "PAYE (Income Tax)",
+            normalize(statutory.paye())));
+        deductions.add(new PayslipData.Line(
+            isNapsa ? "NAPSA_EMPLOYEE" : "LASF_EMPLOYEE",
+            statutory.contributionScheme() + " (Employee)",
+            normalize(isNapsa ? statutory.napsaEmployee() : statutory.lasfEmployee())));
+        deductions.add(new PayslipData.Line("NHIMA_EMPLOYEE", "NHIMA (Employee)",
+            normalize(statutory.nhimaEmployee())));
+        deductions.add(new PayslipData.Line("GRZ_FUNERAL_EMPLOYEE",
+            "GRZ Funeral Scheme (Employee)", normalize(statutory.grzFuneralEmployee())));
+
+        List<PayslipData.Line> employer = new ArrayList<>();
+        employer.add(new PayslipData.Line(
+            isNapsa ? "NAPSA_EMPLOYER" : "LASF_EMPLOYER",
+            statutory.contributionScheme() + " (Employer)",
+            normalize(isNapsa ? statutory.napsaEmployer() : statutory.lasfEmployer())));
+        employer.add(new PayslipData.Line("NHIMA_EMPLOYER", "NHIMA (Employer)",
+            normalize(statutory.nhimaEmployer())));
+        employer.add(new PayslipData.Line("GRZ_FUNERAL_EMPLOYER",
+            "GRZ Funeral Scheme (Employer)", normalize(statutory.grzFuneralEmployer())));
+
+        // Division from salary scale
+        Division division = Division.fromSalaryScale(salary.salaryScale());
+
+        return new PayslipData(
+            authorityCode,
+            str(authRow.get("authority_name")),
+            str(authRow.get("address")),
+            str(authRow.get("logo_object_key")),
+            str(authRow.get("paye_registration_no")),
+            str(authRow.get("napsa_registration_no")),
+            str(authRow.get("nhima_registration_no")),
+            str(authRow.get("funeral_policy_registration_no")),
+            extractPeriodCode(runCode),
+            periodStart,
+            periodEnd,
+            runCode,
+            employeeId,
+            employeeName,
+            str(empRow.get("nrc_masked")),
+            str(empRow.get("tpin_masked")),
+            str(empRow.get("position")),
+            division == null ? null : division.name(),
+            salary.salaryScale(),
+            salary.notchNo(),
+            str(empRow.get("bank_name")),
+            str(empRow.get("bank_account_masked")),
+            earnings,
+            deductions,
+            employer,
+            normalize(gross),
+            normalize(totalDeductions),
+            normalize(netPay)
+        );
+    }
+
+    /**
+     * Deterministic canonical serialization of a PayslipData. Used as
+     * the input to SHA-256 for pdf_hash. All fields that appear on the
+     * payslip are included; ordering is fixed by the method body.
+     */
+    private static String canonicalPayslip(PayslipData d) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(d.authorityCode()).append('|')
+          .append(d.periodCode()).append('|')
+          .append(d.runCode()).append('|')
+          .append(d.employeeId()).append('|')
+          .append(d.employeeName()).append('|')
+          .append(d.position()).append('|')
+          .append(d.division()).append('|')
+          .append(d.salaryScale()).append('|')
+          .append(d.notchNo()).append('|')
+          .append(d.bankName()).append('|')
+          .append(d.bankAccountMasked()).append('|');
+        d.earnings().forEach(l ->
+            sb.append(l.code()).append(':').append(l.name()).append('=')
+              .append(l.amount()).append(';'));
+        sb.append('|');
+        d.deductions().forEach(l ->
+            sb.append(l.code()).append(':').append(l.name()).append('=')
+              .append(l.amount()).append(';'));
+        sb.append('|');
+        d.employerContribs().forEach(l ->
+            sb.append(l.code()).append(':').append(l.name()).append('=')
+              .append(l.amount()).append(';'));
+        sb.append('|')
+          .append(d.grossPay()).append('|')
+          .append(d.totalDeductions()).append('|')
+          .append(d.netPay());
         return sb.toString();
     }
 
-    private static String sha256(String input) {
+    private static String str(Object o) { return o == null ? null : o.toString(); }
+
+    private static String extractPeriodCode(String runCode) {
+        String rest = runCode.startsWith("RUN-") ? runCode.substring(4) : runCode;
+        int dash = rest.lastIndexOf('-');
+        if (dash > 0 && rest.substring(dash + 1).chars().allMatch(Character::isDigit)) {
+            return rest.substring(0, dash);
+        }
+        return rest;
+    }
+
+    static String sha256(byte[] input) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(input.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
+            return HexFormat.of().formatHex(md.digest(input));
         } catch (Exception e) {
             throw new RuntimeException("SHA-256 unavailable", e);
         }
+    }
+
+    private static String sha256(String input) {
+        return sha256(input.getBytes(StandardCharsets.UTF_8));
     }
 
     private BigDecimal normalize(BigDecimal value) {

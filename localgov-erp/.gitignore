@@ -2,3 +2,6 @@
 # Backup files (never commit)
 *.bak
 *.bak.*
+
+# Payslip PDF object storage (dev)
+var/

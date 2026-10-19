@@ -189,7 +189,8 @@ public class PayrollEngineService {
                 // 5f. Persist erp_payroll_run_item and erp_payroll_run_item_line
                 PayslipPersister.PendingPayslip pp = payslipPersister.persistItemAndLines(
                     runId, authorityCode, runCode, employeeId, employeeName,
-                    salary, allowances, statutory, gross, totalDeductions, netPay);
+                    salary, allowances, statutory, gross, totalDeductions, netPay,
+                    periodStart, periodEnd);
 
                 pending.add(pp);
                 pdfHashes.add(pp.pdfHash());

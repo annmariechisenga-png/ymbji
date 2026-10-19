@@ -3,12 +3,17 @@ package com.localgov.service.payroll;
 import com.localgov.service.payroll.model.AllowanceLine;
 import com.localgov.service.payroll.model.ResolvedSalary;
 import com.localgov.service.payroll.model.StatutoryDeductions;
+import com.localgov.service.payroll.storage.FilesystemObjectStorage;
+import com.localgov.service.payroll.storage.ObjectStorage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
+import java.nio.file.Path;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -17,13 +22,20 @@ import static org.mockito.Mockito.*;
 
 class PayslipPersisterTest {
 
+    @TempDir Path tmpDir;
+
     private JdbcTemplate jdbcTemplate;
     private PayslipPersister persister;
+
+    private static final LocalDate PERIOD_START = LocalDate.of(2026, 10, 1);
+    private static final LocalDate PERIOD_END   = LocalDate.of(2026, 10, 31);
 
     @BeforeEach
     void setUp() {
         jdbcTemplate = mock(JdbcTemplate.class);
-        persister = new PayslipPersister(jdbcTemplate);
+        ObjectStorage storage = new FilesystemObjectStorage(tmpDir.toString());
+        PayslipRenderer renderer = new PayslipRenderer(storage);
+        persister = new PayslipPersister(jdbcTemplate, renderer, storage);
     }
 
     // -----------------------------------------------------------------
@@ -43,7 +55,8 @@ class PayslipPersisterTest {
             salary(), allowances(), statutory(),
             new BigDecimal("10000.00"),
             new BigDecimal("2100.00"),
-            new BigDecimal("7900.00"));
+            new BigDecimal("7900.00"),
+            PERIOD_START, PERIOD_END);
 
         assertThat(pp).isNotNull();
         assertThat(pp.authorityCode()).isEqualTo("CHILANGA");
@@ -55,7 +68,11 @@ class PayslipPersisterTest {
         verify(jdbcTemplate, times(1)).queryForObject(
             contains("INSERT INTO erp_payroll_run_item"),
             eq(Long.class), any(Object[].class));
-        verify(jdbcTemplate, times(11)).update(
+        // 1 BASIC + 2 allowances (earnings)
+        // + 4 employee deductions (PAYE, NAPSA/LASF, NHIMA, Funeral)
+        // + 3 employer contribs (NAPSA/LASF, NHIMA, Funeral)
+        // = 10 lines.
+        verify(jdbcTemplate, times(10)).update(
             contains("INSERT INTO erp_payroll_run_item_line"),
             any(Object[].class));
         verify(jdbcTemplate, times(0)).update(
@@ -97,12 +114,12 @@ class PayslipPersisterTest {
         String hash1 = persister.persistItemAndLines(100L, "CHILANGA", "2026-10",
             "EMP-001", "Test", salary(), allowances(), statutory(),
             new BigDecimal("10000.00"), new BigDecimal("2100.00"),
-            new BigDecimal("7900.00")).pdfHash();
+            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END).pdfHash();
 
         String hash2 = persister.persistItemAndLines(100L, "CHILANGA", "2026-10",
             "EMP-001", "Test", salary(), allowances(), statutory(),
             new BigDecimal("10000.00"), new BigDecimal("2100.00"),
-            new BigDecimal("7900.00")).pdfHash();
+            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END).pdfHash();
 
         assertThat(hash1).isEqualTo(hash2);
     }
@@ -118,7 +135,7 @@ class PayslipPersisterTest {
         String hash1 = persister.persistItemAndLines(100L, "CHILANGA", "2026-10",
             "EMP-001", "Test", salary(), allowances(), statutory(),
             new BigDecimal("10000.00"), new BigDecimal("2100.00"),
-            new BigDecimal("7900.00")).pdfHash();
+            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END).pdfHash();
 
         ResolvedSalary salary2 = new ResolvedSalary(
             "EMP-001", "LGSS05", 3,
@@ -128,7 +145,7 @@ class PayslipPersisterTest {
         String hash2 = persister.persistItemAndLines(100L, "CHILANGA", "2026-10",
             "EMP-001", "Test", salary2, allowances(), statutory(),
             new BigDecimal("9000.00"), new BigDecimal("2100.00"),
-            new BigDecimal("6900.00")).pdfHash();
+            new BigDecimal("6900.00"), PERIOD_START, PERIOD_END).pdfHash();
 
         assertThat(hash1).isNotEqualTo(hash2);
     }
@@ -143,52 +160,58 @@ class PayslipPersisterTest {
         List<String> hashes = List.of(
             "cafebabe" + "0".repeat(56),
             "deadbeef" + "0".repeat(56),
-            "12345678" + "0".repeat(56)
-        );
+            "12345678" + "0".repeat(56));
 
-        String hash1 = PayslipPersister.computeRunHash(hashes);
-        String hash2 = PayslipPersister.computeRunHash(
-            List.of(hashes.get(2), hashes.get(0), hashes.get(1)));
+        String forward = PayslipPersister.computeRunHash(hashes);
+        String reversed = PayslipPersister.computeRunHash(
+            List.of(hashes.get(2), hashes.get(1), hashes.get(0)));
 
-        assertThat(hash1).isEqualTo(hash2);
-        assertThat(hash1).hasSize(64);
+        assertThat(forward).isEqualTo(reversed);
+        assertThat(forward).hasSize(64);
     }
 
     // -----------------------------------------------------------------
-    // Fixtures
+    // Helpers
     // -----------------------------------------------------------------
 
     private ResolvedSalary salary() {
-        return new ResolvedSalary("EMP-001", "LGSS05", 3,
-            new BigDecimal("8000.00"), new BigDecimal("8000.00"),
+        return new ResolvedSalary(
+            "EMP-001", "LGSS05", 3,
+            new BigDecimal("10000.00"), new BigDecimal("10000.00"),
             31, 31, false, "CALENDAR_DAYS");
     }
 
     private List<AllowanceLine> allowances() {
         return List.of(
-            new AllowanceLine("HOUSING", "Housing", new BigDecimal("0.20"),
-                new BigDecimal("1600.00"), "PERCENT_OF_BASIC", null),
-            new AllowanceLine("TRANSPORT", "Transport", new BigDecimal("0.20"),
-                new BigDecimal("1600.00"), "PERCENT_OF_BASIC", "TRANSPORT_ALLOWANCE_RATE"),
-            new AllowanceLine("EDUCATION", "Education", new BigDecimal("0.20"),
-                new BigDecimal("1600.00"), "PERCENT_OF_BASIC", null)
-        );
+            new AllowanceLine("HOUSING", "Housing Allowance",
+                new BigDecimal("0.20"),            // rate
+                new BigDecimal("500.00"),          // amount
+                "PERCENT_OF_BASIC",
+                "HOUSING_ALLOWANCE"),
+            new AllowanceLine("TRANSPORT", "Transport Allowance",
+                null,                              // flat → no rate
+                new BigDecimal("300.00"),
+                "FLAT_AMOUNT",
+                "TRANSPORT_ALLOWANCE"));
     }
 
     private StatutoryDeductions statutory() {
+        // All 12 fields, in the record's declared order:
+        // employeeId, taxableGross, paye, napsaEmployee, napsaEmployer,
+        // lasfEmployee, lasfEmployer, nhimaEmployee, nhimaEmployer,
+        // grzFuneralEmployee, grzFuneralEmployer, contributionScheme
         return new StatutoryDeductions(
             "EMP-001",
-            new BigDecimal("9813.82"),
-            new BigDecimal("1314.15"),
-            new BigDecimal("186.18"),
-            new BigDecimal("186.18"),
-            BigDecimal.ZERO,
-            BigDecimal.ZERO,
-            new BigDecimal("80.00"),
-            new BigDecimal("80.00"),
-            new BigDecimal("32.00"),
-            new BigDecimal("48.00"),
-            "NAPSA"
-        );
+            new BigDecimal("9700.00"),   // taxableGross = 10000 - 300 (NAPSA)
+            new BigDecimal("1500.00"),   // paye
+            new BigDecimal("300.00"),    // napsaEmployee
+            new BigDecimal("500.00"),    // napsaEmployer
+            BigDecimal.ZERO,             // lasfEmployee
+            BigDecimal.ZERO,             // lasfEmployer
+            new BigDecimal("50.00"),     // nhimaEmployee
+            new BigDecimal("50.00"),     // nhimaEmployer
+            new BigDecimal("25.00"),     // grzFuneralEmployee
+            new BigDecimal("25.00"),     // grzFuneralEmployer
+            "NAPSA");
     }
 }
