@@ -1,0 +1,22 @@
+# ============================================================
+# Production profile
+#
+# Activated with: --spring.profiles.active=prod
+# or: SPRING_PROFILES_ACTIVE=prod
+#
+# Overrides application.yml defaults for production deployment.
+# Any property not mentioned here inherits from application.yml.
+# ============================================================
+
+payroll:
+  pdf:
+    # Absolute path on the host filesystem where payslip PDFs
+    # are written. Must be:
+    #   - writable by the application service user
+    #   - backed up (payslips are audit records)
+    #   - on durable storage (not /tmp)
+    #
+    # Recommended: a dedicated volume, e.g. /var/lib/localgov-erp/payslips
+    # For S3/MinIO in the future: replace FilesystemObjectStorage with
+    # an S3ObjectStorage implementation and change the config key.
+    object-store-root: /var/lib/localgov-erp/payslips

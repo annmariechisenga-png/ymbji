@@ -5,3 +5,6 @@
 
 # Payslip PDF object storage (dev)
 var/
+
+# Production payslip storage (never commit)
+var/lib/localgov-erp/
