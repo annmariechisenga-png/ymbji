@@ -1,5 +1,8 @@
 package com.localgov.service;
 
+import com.localgov.service.overtime.OvertimeGrouping;
+import com.localgov.service.overtime.PayrollOvertimeAggregate;
+
 import com.localgov.domain.model.Employee;
 import com.localgov.domain.model.OvertimeSession;
 import com.localgov.domain.model.OvertimeTeam;
@@ -520,11 +523,58 @@ public class OvertimeService {
         );
     }
 
+    /**
+     * Group payroll-cutoff sessions by employee, for a payroll run.
+     *
+     * <p>Uses the same window logic as {@link #getPayrollCutoffSessions}:
+     * this month [1..cutoff_day] + previous month [cutoff_day+1..last_day].
+     * Same status filter (approved, approved_level3). Same unpaid-only
+     * filter.
+     *
+     * <p>The Map key is the employee_id string (VARCHAR(50) after V116),
+     * matching overtime_sessions.employee_id.
+     *
+     * @param month payroll month (1..12)
+     * @param year  payroll year
+     * @return map of employeeId -> aggregate (hours, amount, session ids)
+     */
+    public Map<String, PayrollOvertimeAggregate> groupPayrollCutoffByEmployee(
+            int month, int year) {
+        List<OvertimeSession> sessions = getPayrollCutoffSessions(month, year);
+        return OvertimeGrouping.groupByEmployee(sessions);
+    }
+
+    /**
+     * Mark the given overtime sessions as paid. Called by the payroll
+     * engine after a run has persisted the corresponding payslip lines.
+     *
+     * <p>Idempotent: rows already flagged paid are not re-touched.
+     * Sessions not in the list are left alone.
+     *
+     * @param sessionIds ids of {@link OvertimeSession} rows to flip to paid
+     */
+    @Transactional
+    public void markPayrollPaid(List<Long> sessionIds) {
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return;
+        }
+        List<OvertimeSession> sessions = overtimeSessionRepository.findAllById(sessionIds);
+        LocalDateTime now = LocalDateTime.now();
+        for (OvertimeSession s : sessions) {
+            if (!Boolean.TRUE.equals(s.getPaid())) {
+                s.setPaid(true);
+                s.setStatus("paid");
+                s.setPaidAt(now);
+            }
+        }
+        overtimeSessionRepository.saveAll(sessions);
+    }
+
     private String nullSafe(String value) {
         return value == null ? "" : value;
     }
 
-    private List<OvertimeSession> getPayrollCutoffSessions(int month, int year) {
+    public List<OvertimeSession> getPayrollCutoffSessions(int month, int year) {
         if (month < 1 || month > 12) {
             throw new BusinessValidationException("month must be between 1 and 12");
         }
