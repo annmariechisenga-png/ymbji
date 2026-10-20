@@ -12,6 +12,7 @@ import com.localgov.service.dto.TeamOvertimeSmsResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.data.domain.Page;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -172,21 +173,92 @@ public class OvertimeController {
         );
     }
 
+    /**
+     * @deprecated Use POST /{id}/approve-supervisor — the old endpoint
+     * has been renamed to make the workflow stage explicit. This alias
+     * delegates to the supervisor stage so existing clients keep working.
+     */
+    @Deprecated
     @PostMapping("/{id}/approve")
-    @Operation(summary = "Approve an overtime session")
-    public OvertimeSessionResponse approveSession(
+    @Operation(summary = "Approve an overtime session (deprecated — use /approve-supervisor)",
+        deprecated = true)
+    @PreAuthorize("hasAnyRole('ADMIN','PAYROLL','SUPERVISOR','HOD','MANAGER')")
+    public OvertimeSessionResponse approveSessionLegacy(
             @PathVariable Long id,
             @RequestBody OvertimeDecisionRequest request
     ) {
-        return overtimeService.approveOvertimeSession(id, request.decidedBy());
+        return overtimeService.approveBySupervisor(id, request.decidedBy());
     }
 
+    /**
+     * Stage 2 — Supervisor compiles the sheet.
+     * pending_supervisor → pending_hod.
+     */
+    @PostMapping("/{id}/approve-supervisor")
+    @Operation(summary = "Supervisor compiles the overtime sheet")
+    @PreAuthorize("hasAnyRole('ADMIN','PAYROLL','SUPERVISOR','HOD','MANAGER')")
+    public OvertimeSessionResponse approveBySupervisor(
+            @PathVariable Long id,
+            @RequestBody OvertimeDecisionRequest request
+    ) {
+        return overtimeService.approveBySupervisor(id, request.decidedBy());
+    }
+
+    /**
+     * Stage 3 — HOD authorises.
+     * pending_hod → pending_audit.
+     */
+    @PostMapping("/{id}/approve-hod")
+    @Operation(summary = "HOD authorises the overtime session")
+    @PreAuthorize("hasAnyRole('ADMIN','PAYROLL','HOD')")
+    public OvertimeSessionResponse approveByHod(
+            @PathVariable Long id,
+            @RequestBody OvertimeDecisionRequest request
+    ) {
+        return overtimeService.approveByHod(id, request.decidedBy());
+    }
+
+    /**
+     * Stage 4 — Auditor checks.
+     * pending_audit → pending_ro.
+     */
+    @PostMapping("/{id}/approve-auditor")
+    @Operation(summary = "Auditor checks the overtime session")
+    @PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+    public OvertimeSessionResponse approveByAuditor(
+            @PathVariable Long id,
+            @RequestBody OvertimeDecisionRequest request
+    ) {
+        return overtimeService.approveByAuditor(id, request.decidedBy());
+    }
+
+    /**
+     * Stage 5 — Responsible Officer (CS for Town, TC for Municipal/City)
+     * gives final approval. pending_ro → approved.
+     */
+    @PostMapping("/{id}/approve-ro")
+    @Operation(summary = "Responsible Officer (CS/TC) gives final approval")
+    @PreAuthorize("hasAnyRole('ADMIN','RESPONSIBLE_OFFICER','TOWN_CLERK','COUNCIL_SECRETARY')")
+    public OvertimeSessionResponse approveByResponsibleOfficer(
+            @PathVariable Long id,
+            @RequestBody OvertimeDecisionRequest request
+    ) {
+        return overtimeService.approveByResponsibleOfficer(id, request.decidedBy());
+    }
+
+    /**
+     * Reject at any pre-approved stage. The service validates the status
+     * is a rejectable stage; the role check here is intentionally broad
+     * (anyone who can act at any stage can reject) — the service throws
+     * BusinessValidationException if the current status doesn't permit it.
+     */
     @PostMapping("/{id}/reject")
-    @Operation(summary = "Reject an overtime session")
+    @Operation(summary = "Reject an overtime session from any pending stage")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR','HOD','AUDITOR','PAYROLL','RESPONSIBLE_OFFICER','TOWN_CLERK','COUNCIL_SECRETARY')")
     public OvertimeSessionResponse rejectSession(
             @PathVariable Long id,
             @RequestBody OvertimeDecisionRequest request
     ) {
-        return overtimeService.rejectOvertimeSession(id, request.decidedBy(), request.reason());
+        return overtimeService.rejectAtCurrentStage(id, request.decidedBy(), request.reason());
     }
 }
