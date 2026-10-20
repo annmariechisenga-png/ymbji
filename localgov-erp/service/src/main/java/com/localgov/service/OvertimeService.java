@@ -259,7 +259,7 @@ public class OvertimeService {
             session.setSupervisorId(supervisor.getEmployeeId());
             session.setWorkDescription(request.reason());
             session.setSource("sms");
-            session.setStatus("pending_hod");
+            session.setStatus("pending_supervisor");
 
             OvertimeSession saved = overtimeSessionRepository.save(session);
             sessionIds.add(String.valueOf(saved.getId()));
@@ -279,17 +279,128 @@ public class OvertimeService {
 
     // ── Supervisor approval / rejection ──────────────────────────────────────
 
+    /**
+     * @deprecated Use {@link #approveBySupervisor(Long, String)} — the
+     * old behavior jumped straight from pending_supervisor to approved,
+     * skipping the HOD, Auditor, and RO stages required by the paper
+     * Overtime Sheet workflow. Kept as a delegating alias for backward
+     * compatibility with existing callers; new code should call the
+     * specific stage method.
+     */
+    @Deprecated
     @Transactional
     public OvertimeSessionResponse approveOvertimeSession(Long sessionId, String supervisorId) {
+        return approveBySupervisor(sessionId, supervisorId);
+    }
+
+    // ── Workflow stage transitions ────────────────────────────────────────
+    //
+    // Paper form order (Chilanga Overtime Sheet):
+    //   1. Officer applies           → pending_supervisor (submission)
+    //   2. Compiled by Supervisor    → approveBySupervisor → pending_hod
+    //   3. Authorised by HOD         → approveByHod        → pending_audit
+    //   4. Checked by Auditor        → approveByAuditor    → pending_ro
+    //   5. Approved by CS/TC (RO)    → approveByRO         → approved
+    //
+    // Roles are enforced by the controller (@PreAuthorize). The service
+    // validates state transitions; the controller validates who may call.
+
+    /**
+     * Stage 2 — Supervisor compiles the sheet.
+     * Transitions {@code pending_supervisor → pending_hod}.
+     */
+    @Transactional
+    public OvertimeSessionResponse approveBySupervisor(Long sessionId, String supervisorId) {
         OvertimeSession session = requireSession(sessionId);
         if (!"pending_supervisor".equals(session.getStatus())) {
-            throw new BusinessValidationException("Session is not in pending_supervisor status");
+            throw new BusinessValidationException(
+                "Session is not in pending_supervisor status (was: " + session.getStatus() + ")");
         }
         if (supervisorId != null && !supervisorId.equals(session.getSupervisorId())) {
-            throw new BusinessValidationException("Only the assigned supervisor may approve this session");
+            throw new BusinessValidationException(
+                "Only the assigned supervisor may approve this session");
         }
-        session.setStatus("approved");
+        session.setSupervisorApproved(Boolean.TRUE);
+        session.setSupervisorApprovedAt(LocalDateTime.now());
+        session.setStatus("pending_hod");
         session.setApprovedAt(LocalDateTime.now());
+        return toResponse(overtimeSessionRepository.save(session));
+    }
+
+    /**
+     * Stage 3 — HOD authorises.
+     * Transitions {@code pending_hod → pending_audit}.
+     */
+    @Transactional
+    public OvertimeSessionResponse approveByHod(Long sessionId, String hodId) {
+        OvertimeSession session = requireSession(sessionId);
+        if (!"pending_hod".equals(session.getStatus())) {
+            throw new BusinessValidationException(
+                "Session is not in pending_hod status (was: " + session.getStatus() + ")");
+        }
+        session.setHodId(hodId);
+        session.setHodApproved(Boolean.TRUE);
+        session.setHodApprovedAt(LocalDateTime.now());
+        session.setStatus("pending_audit");
+        return toResponse(overtimeSessionRepository.save(session));
+    }
+
+    /**
+     * Stage 4 — Auditor checks.
+     * Transitions {@code pending_audit → pending_ro}.
+     */
+    @Transactional
+    public OvertimeSessionResponse approveByAuditor(Long sessionId, String auditorId) {
+        OvertimeSession session = requireSession(sessionId);
+        if (!"pending_audit".equals(session.getStatus())) {
+            throw new BusinessValidationException(
+                "Session is not in pending_audit status (was: " + session.getStatus() + ")");
+        }
+        session.setAuditorId(auditorId);
+        session.setAuditorApproved(Boolean.TRUE);
+        session.setAuditorApprovedAt(LocalDateTime.now());
+        session.setStatus("pending_ro");
+        return toResponse(overtimeSessionRepository.save(session));
+    }
+
+    /**
+     * Stage 5 — Responsible Officer (CS for Town, TC for Municipal/City)
+     * gives final approval. Transitions {@code pending_ro → approved}.
+     */
+    @Transactional
+    public OvertimeSessionResponse approveByResponsibleOfficer(Long sessionId, String roId) {
+        OvertimeSession session = requireSession(sessionId);
+        if (!"pending_ro".equals(session.getStatus())) {
+            throw new BusinessValidationException(
+                "Session is not in pending_ro status (was: " + session.getStatus() + ")");
+        }
+        session.setResponsibleOfficerId(roId);
+        session.setRoApproved(Boolean.TRUE);
+        session.setRoApprovedAt(LocalDateTime.now());
+        session.setStatus("approved");
+        return toResponse(overtimeSessionRepository.save(session));
+    }
+
+    /**
+     * Reject at any pre-approved stage. The rejecter's role is verified
+     * by the controller (via @PreAuthorize) — the service only checks
+     * that the current status is a rejectable stage.
+     */
+    @Transactional
+    public OvertimeSessionResponse rejectAtCurrentStage(Long sessionId,
+                                                        String rejectorId,
+                                                        String reason) {
+        OvertimeSession session = requireSession(sessionId);
+        String status = session.getStatus();
+        if (!("pending_supervisor".equals(status)
+           || "pending_hod".equals(status)
+           || "pending_audit".equals(status)
+           || "pending_ro".equals(status))) {
+            throw new BusinessValidationException(
+                "Session cannot be rejected from status: " + status);
+        }
+        session.setStatus("rejected");
+        session.setRejectionReason(reason);
         return toResponse(overtimeSessionRepository.save(session));
     }
 
@@ -515,8 +626,25 @@ public class OvertimeService {
                 s.getPayrollProcessedIn(),
                 s.getSource(),
                 s.getStatus(),
+                // Submission
                 s.getSupervisorId(),
                 s.getWorkDescription(),
+                // Supervisor stage
+                s.getSupervisorApproved(),
+                s.getSupervisorApprovedAt(),
+                // HOD stage
+                s.getHodId(),
+                s.getHodApproved(),
+                s.getHodApprovedAt(),
+                // Auditor stage
+                s.getAuditorId(),
+                s.getAuditorApproved(),
+                s.getAuditorApprovedAt(),
+                // Responsible Officer stage
+                s.getResponsibleOfficerId(),
+                s.getRoApproved(),
+                s.getRoApprovedAt(),
+                // Finalisation
                 s.getRejectionReason(),
                 s.getApprovedAt(),
                 s.getCreatedAt()
