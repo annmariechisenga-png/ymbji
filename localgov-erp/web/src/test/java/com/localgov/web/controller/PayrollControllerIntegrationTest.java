@@ -187,6 +187,22 @@ class PayrollControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("overtime_sessions has no dangling FK to dropped erp_employee table")
+    void overtimeSessionsFkIsClean() {
+        var constraints = jdbc.queryForList(
+            "SELECT conname, pg_get_constraintdef(oid) AS def " +
+            "FROM pg_constraint " +
+            "WHERE conrelid = 'overtime_sessions'::regclass AND contype = 'f'");
+
+        for (var c : constraints) {
+            String def = (String) c.get("def");
+            assertThat(def)
+                .as("FK " + c.get("conname") + " must not reference dropped erp_employee")
+                .doesNotContain("erp_employee");
+        }
+    }
+
+    @Test
     @DisplayName("Same idempotencyKey returns the existing run, no duplicate")
     void runPayroll_idempotentReplay() throws Exception {
         String jwt = jwtFor("chilanga.admin");
