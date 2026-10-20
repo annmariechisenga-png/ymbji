@@ -56,17 +56,20 @@ public class PayrollEngineService {
     private final AllowanceCalculator allowanceCalculator;
     private final StatutoryCalculator statutoryCalculator;
     private final PayslipPersister payslipPersister;
+    private final com.localgov.service.OvertimeService overtimeService;
 
     public PayrollEngineService(JdbcTemplate jdbcTemplate,
                                 SalaryResolver salaryResolver,
                                 AllowanceCalculator allowanceCalculator,
                                 StatutoryCalculator statutoryCalculator,
-                                PayslipPersister payslipPersister) {
+                                PayslipPersister payslipPersister,
+                                com.localgov.service.OvertimeService overtimeService) {
         this.jdbcTemplate = jdbcTemplate;
         this.salaryResolver = salaryResolver;
         this.allowanceCalculator = allowanceCalculator;
         this.statutoryCalculator = statutoryCalculator;
         this.payslipPersister = payslipPersister;
+        this.overtimeService = overtimeService;
     }
 
     /**
@@ -154,10 +157,19 @@ public class PayrollEngineService {
         // 5. Pass 1: for each employee, compute + persist item and lines,
         //    but defer the payslips insert until run_hash is known.
         int periodYear = periodStart.getYear();
+        int periodMonth = periodStart.getMonthValue();
         List<PayslipPersister.PendingPayslip> pending = new ArrayList<>();
         List<String> pdfHashes = new ArrayList<>();
         BigDecimal grossTotal = BigDecimal.ZERO;
         BigDecimal netTotal = BigDecimal.ZERO;
+
+        // 5-OT. Source approved, unpaid overtime from the cutoff window
+        //       (this month days 1..cutoff_day + previous month days
+        //       cutoff_day+1..end). Grouped by employee; each aggregate
+        //       carries the session ids for the post-persist mark-as-paid.
+        Map<String, com.localgov.service.overtime.PayrollOvertimeAggregate> otByEmployee =
+            overtimeService.groupPayrollCutoffByEmployee(periodMonth, periodYear);
+        List<Long> allSessionIds = new ArrayList<>();
 
         for (Map<String, Object> emp : employees) {
             String employeeId = (String) emp.get("employee_id");
@@ -172,25 +184,43 @@ public class PayrollEngineService {
                 List<AllowanceLine> allowances = allowanceCalculator.compute(
                     employeeId, authorityCode, salary, periodStart);
 
-                // 5c. Sum allowances to gross
+                // 5c. Sum allowances + source overtime for this employee.
+                //     Division I is excluded from Ordinary Overtime per
+                //     T&Cs §169(a) — even if a session somehow exists.
                 BigDecimal grossAllowances = allowances.stream()
                     .map(AllowanceLine::amount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
-                BigDecimal gross = salary.proratedBasic().add(grossAllowances);
 
-                // 5d. Compute statutory
+                boolean isDivisionI = Division.fromSalaryScale(salary.salaryScale())
+                    == Division.I;
+                com.localgov.service.overtime.PayrollOvertimeAggregate otAggregate =
+                    isDivisionI ? null : otByEmployee.get(employeeId);
+                BigDecimal overtimeAmount = otAggregate != null
+                    ? otAggregate.totalAmount() : BigDecimal.ZERO;
+
+                // Taxable non-basic = allowances + overtime (both taxable)
+                BigDecimal taxableNonBasic = grossAllowances.add(overtimeAmount);
+
+                // 5d. Compute statutory on the full taxable base
                 StatutoryDeductions statutory = statutoryCalculator.compute(
-                    employeeId, authorityCode, salary, periodStart, periodYear, grossAllowances);
+                    employeeId, authorityCode, salary, periodStart, periodYear, taxableNonBasic);
 
-                // 5e. Total deductions
+                // 5e. Gross including overtime
+                BigDecimal gross = salary.proratedBasic().add(taxableNonBasic);
+
+                // 5f. Total deductions
                 BigDecimal totalDeductions = statutory.totalEmployeeDeductions();
                 BigDecimal netPay = gross.subtract(totalDeductions);
 
-                // 5f. Persist erp_payroll_run_item and erp_payroll_run_item_line
+                // 5g. Persist erp_payroll_run_item and erp_payroll_run_item_line
                 PayslipPersister.PendingPayslip pp = payslipPersister.persistItemAndLines(
                     runId, authorityCode, runCode, employeeId, employeeName,
                     salary, allowances, statutory, gross, totalDeductions, netPay,
-                    periodStart, periodEnd);
+                    periodStart, periodEnd, overtimeAmount);
+
+                if (otAggregate != null) {
+                    allSessionIds.addAll(otAggregate.sessionIds());
+                }
 
                 pending.add(pp);
                 pdfHashes.add(pp.pdfHash());
@@ -208,6 +238,10 @@ public class PayrollEngineService {
         // 6. Compute run_hash, then insert all payslips in one batch
         String runHash = PayslipPersister.computeRunHash(pdfHashes);
         payslipPersister.persistPayslips(pending, runHash);
+
+        // 6-OT. Mark OT sessions paid. Same transaction as the run: if
+        //       anything after this throws, the paid flag rolls back.
+        overtimeService.markPayrollPaid(allSessionIds);
 
         // 7. Update run header totals + status + run_hash
         jdbcTemplate.update(

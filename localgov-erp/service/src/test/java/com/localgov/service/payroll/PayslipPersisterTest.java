@@ -56,7 +56,7 @@ class PayslipPersisterTest {
             new BigDecimal("10000.00"),
             new BigDecimal("2100.00"),
             new BigDecimal("7900.00"),
-            PERIOD_START, PERIOD_END);
+            PERIOD_START, PERIOD_END, BigDecimal.ZERO);
 
         assertThat(pp).isNotNull();
         assertThat(pp.authorityCode()).isEqualTo("CHILANGA");
@@ -77,6 +77,34 @@ class PayslipPersisterTest {
             any(Object[].class));
         verify(jdbcTemplate, times(0)).update(
             contains("INSERT INTO payslips"),
+            any(Object[].class));
+    }
+
+    @Test
+    @DisplayName("Overtime line is inserted when overtimeAmount > 0")
+    void overtimeLine_insertedWhenPositive() {
+        when(jdbcTemplate.queryForObject(
+                contains("INSERT INTO erp_payroll_run_item"),
+                eq(Long.class), any(Object[].class)))
+            .thenReturn(55L);
+
+        PayslipPersister.PendingPayslip pp = persister.persistItemAndLines(
+            100L, "CHILANGA", "2026-10", "EMP-001", "Test Employee",
+            salary(), allowances(), statutory(),
+            new BigDecimal("10800.00"),   // gross including OT
+            new BigDecimal("2100.00"),
+            new BigDecimal("8700.00"),    // net including OT
+            PERIOD_START, PERIOD_END,
+            new BigDecimal("800.00"));    // overtime amount
+
+        assertThat(pp).isNotNull();
+        assertThat(pp.pdfHash()).hasSize(64);
+        assertThat(pp.pdfHash()).matches("^[0-9a-f]{64}$");
+
+        // Base lines: 1 BASIC + 2 allowances + 4 deductions + 3 employer = 10
+        // Plus 1 OVERTIME = 11
+        verify(jdbcTemplate, times(11)).update(
+            contains("INSERT INTO erp_payroll_run_item_line"),
             any(Object[].class));
     }
 
@@ -114,12 +142,12 @@ class PayslipPersisterTest {
         String hash1 = persister.persistItemAndLines(100L, "CHILANGA", "2026-10",
             "EMP-001", "Test", salary(), allowances(), statutory(),
             new BigDecimal("10000.00"), new BigDecimal("2100.00"),
-            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END).pdfHash();
+            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END, BigDecimal.ZERO).pdfHash();
 
         String hash2 = persister.persistItemAndLines(100L, "CHILANGA", "2026-10",
             "EMP-001", "Test", salary(), allowances(), statutory(),
             new BigDecimal("10000.00"), new BigDecimal("2100.00"),
-            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END).pdfHash();
+            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END, BigDecimal.ZERO).pdfHash();
 
         assertThat(hash1).isEqualTo(hash2);
     }
@@ -135,7 +163,7 @@ class PayslipPersisterTest {
         String hash1 = persister.persistItemAndLines(100L, "CHILANGA", "2026-10",
             "EMP-001", "Test", salary(), allowances(), statutory(),
             new BigDecimal("10000.00"), new BigDecimal("2100.00"),
-            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END).pdfHash();
+            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END, BigDecimal.ZERO).pdfHash();
 
         ResolvedSalary salary2 = new ResolvedSalary(
             "EMP-001", "LGSS05", 3,
@@ -145,7 +173,7 @@ class PayslipPersisterTest {
         String hash2 = persister.persistItemAndLines(100L, "CHILANGA", "2026-10",
             "EMP-001", "Test", salary2, allowances(), statutory(),
             new BigDecimal("9000.00"), new BigDecimal("2100.00"),
-            new BigDecimal("6900.00"), PERIOD_START, PERIOD_END).pdfHash();
+            new BigDecimal("6900.00"), PERIOD_START, PERIOD_END, BigDecimal.ZERO).pdfHash();
 
         assertThat(hash1).isNotEqualTo(hash2);
     }

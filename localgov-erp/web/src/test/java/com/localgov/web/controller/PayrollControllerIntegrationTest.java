@@ -68,6 +68,7 @@ class PayrollControllerIntegrationTest {
         jdbc.execute("DELETE FROM erp_payroll_run");
         jdbc.execute("DELETE FROM erp_payroll_period");
         jdbc.execute("DELETE FROM erp_user_account");
+        jdbc.execute("DELETE FROM overtime_sessions WHERE employee_id = 'EMP-001'");
         jdbc.execute("DELETE FROM employees WHERE authority_code IN ('CHILANGA','LUSAKA_CITY')");
 
         jdbc.update("""
@@ -77,8 +78,24 @@ class PayrollControllerIntegrationTest {
                 date_reported, employment_status, bargaining_unit, union_code
             ) VALUES
             ('EMP-001', 'CHILANGA', 'Test', 'Employee',
-             'LGSS05', 1, DATE '2015-06-01', DATE '2015-06-01', 'ACTIVE',
+             'LGSS08', 1, DATE '2015-06-01', DATE '2015-06-01', 'ACTIVE',
              'UNIONIZED_ZULAWU', 'ZULAWU')
+            """);
+
+        // Seed one approved, unpaid overtime session for EMP-001,
+        // dated within the current payroll cutoff window (Oct 5).
+        // amount_due is precomputed by the workflow; the engine sums it.
+        jdbc.update("""
+            INSERT INTO overtime_sessions (
+                employee_id, session_date, overtime_start, overtime_end,
+                overtime_hours, overtime_type, rate_multiplier, hourly_rate,
+                amount_due, status, paid, source, created_at
+            ) VALUES (
+                'EMP-001', DATE '2026-10-05',
+                TIMESTAMP '2026-10-05 18:00:00', TIMESTAMP '2026-10-05 22:00:00',
+                NUMERIC '4.00', 'weekday', NUMERIC '1.50', NUMERIC '48.18',
+                NUMERIC '289.08', 'approved', FALSE, 'manual', NOW()
+            )
             """);
 
         jdbc.update("""
@@ -149,6 +166,24 @@ class PayrollControllerIntegrationTest {
 
         // The payslip's run_hash must equal the run's run_hash (chain integrity)
         assertThat(payslip.get("run_hash")).isEqualTo(run.get("run_hash"));
+
+        // Overtime line sourced from the seeded session
+        Map<String, Object> overtimeLine = jdbc.queryForMap(
+            "SELECT amount, line_type, source_rule_code " +
+            "FROM erp_payroll_run_item_line " +
+            "WHERE line_code = 'OVERTIME' AND authority_code = 'CHILANGA'");
+
+        assertThat(overtimeLine.get("line_type")).isEqualTo("EARNING");
+        assertThat(overtimeLine.get("source_rule_code")).isEqualTo("OVERTIME_HOURLY_RATE");
+        assertThat((BigDecimal) overtimeLine.get("amount")).isEqualByComparingTo("289.08");
+
+        // Session marked paid in the same transaction as the payslip
+        Map<String, Object> otSession = jdbc.queryForMap(
+            "SELECT paid, status FROM overtime_sessions " +
+            "WHERE employee_id = 'EMP-001' AND session_date = DATE '2026-10-05'");
+
+        assertThat(otSession.get("paid")).isEqualTo(true);
+        assertThat(otSession.get("status")).isEqualTo("paid");
     }
 
     @Test

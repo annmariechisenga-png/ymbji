@@ -72,7 +72,8 @@ public class PayslipPersister {
             BigDecimal totalDeductions,
             BigDecimal netPay,
             java.time.LocalDate periodStart,
-            java.time.LocalDate periodEnd) {
+            java.time.LocalDate periodEnd,
+            BigDecimal overtimeAmount) {
 
         BigDecimal allowancesTotal = allowances.stream()
             .map(AllowanceLine::amount)
@@ -106,6 +107,11 @@ public class PayslipPersister {
             order += 10;
         }
 
+        if (overtimeAmount != null && overtimeAmount.signum() > 0) {
+            insertLine(runItemId, authorityCode, "OVERTIME", "EARNING",
+                "Overtime", normalize(overtimeAmount), 30, "OVERTIME_HOURLY_RATE");
+        }
+
         insertLine(runItemId, authorityCode, "PAYE", "DEDUCTION",
             "PAYE (Income Tax)", statutory.paye(), 10, "PAYE_BANDS");
         insertLine(runItemId, authorityCode,
@@ -133,7 +139,7 @@ public class PayslipPersister {
         PayslipData payslipData = buildPayslipData(
             authorityCode, runCode, employeeId, employeeName,
             salary, allowances, statutory, gross, totalDeductions, netPay,
-            periodStart, periodEnd);
+            periodStart, periodEnd, overtimeAmount);
 
         byte[] pdfBytes = renderer.render(payslipData);
         String pdfObjectKey = authorityCode + "/" + runCode + "/" + employeeId + ".pdf";
@@ -211,7 +217,8 @@ public class PayslipPersister {
             BigDecimal gross, BigDecimal totalDeductions,
             BigDecimal netPay,
             java.time.LocalDate periodStart,
-            java.time.LocalDate periodEnd) {
+            java.time.LocalDate periodEnd,
+            BigDecimal overtimeAmount) {
 
         // Authorities row: name, address, logo key, registration numbers.
         Map<String, Object> authRow;
@@ -246,6 +253,10 @@ public class PayslipPersister {
         for (AllowanceLine al : allowances) {
             earnings.add(new PayslipData.Line(
                 al.allowanceCode(), al.allowanceName(), normalize(al.amount())));
+        }
+        if (overtimeAmount != null && overtimeAmount.signum() > 0) {
+            earnings.add(new PayslipData.Line(
+                "OVERTIME", "Overtime", normalize(overtimeAmount)));
         }
 
         boolean isNapsa = "NAPSA".equals(statutory.contributionScheme());
