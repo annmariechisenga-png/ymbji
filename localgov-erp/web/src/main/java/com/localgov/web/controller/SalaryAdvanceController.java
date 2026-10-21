@@ -2,8 +2,7 @@ package com.localgov.web.controller;
 
 import com.localgov.service.SalaryAdvanceService;
 import com.localgov.service.dto.SalaryAdvanceDisbursementRequest;
-import com.localgov.service.dto.SalaryAdvanceFinanceDecisionRequest;
-import com.localgov.service.dto.SalaryAdvanceHeadDecisionRequest;
+import com.localgov.service.dto.SalaryAdvanceRoDecisionRequest;
 import com.localgov.service.dto.SalaryAdvancePendingDeductionReportResponse;
 import com.localgov.service.dto.SalaryAdvanceRequestCreateRequest;
 import com.localgov.service.dto.SalaryAdvanceRequestResponse;
@@ -51,22 +50,13 @@ public class SalaryAdvanceController {
         return salaryAdvanceService.submitRequest(request);
     }
 
-    @PatchMapping("/requests/{id}/head-decision")
-    @Operation(summary = "Head decision on request", description = "Allowed roles: ADMIN, HR, HEAD, FINANCE, PAYROLL, EMPLOYEE")
-    public SalaryAdvanceRequestResponse headDecision(
-            @PathVariable @Positive Long id,
-            @Valid @RequestBody SalaryAdvanceHeadDecisionRequest request
-    ) {
-        return salaryAdvanceService.headDecision(id, request);
-    }
-
-    @PatchMapping("/requests/{id}/finance-decision")
+    @PatchMapping("/requests/{id}/ro-decision")
     @Operation(summary = "Finance decision on request", description = "Allowed roles: ADMIN, HR, HEAD, FINANCE, PAYROLL, EMPLOYEE")
-    public SalaryAdvanceRequestResponse financeDecision(
+    public SalaryAdvanceRequestResponse roDecision(
             @PathVariable @Positive Long id,
-            @Valid @RequestBody SalaryAdvanceFinanceDecisionRequest request
+            @Valid @RequestBody SalaryAdvanceRoDecisionRequest request
     ) {
-        return salaryAdvanceService.financeDecision(id, request);
+        return salaryAdvanceService.roDecision(id, request);
     }
 
     @PatchMapping("/requests/{id}/disburse")

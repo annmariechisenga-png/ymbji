@@ -17,11 +17,10 @@ import com.localgov.repository.SalaryAdvancePolicyRepository;
 import com.localgov.repository.SalaryAdvanceRequestRepository;
 import com.localgov.repository.SalaryAdvanceWorkflowEventRepository;
 import com.localgov.service.dto.SalaryAdvanceDisbursementRequest;
-import com.localgov.service.dto.SalaryAdvanceFinanceDecisionRequest;
-import com.localgov.service.dto.SalaryAdvanceHeadDecisionRequest;
 import com.localgov.service.dto.SalaryAdvancePendingDeductionItemResponse;
 import com.localgov.service.dto.SalaryAdvancePendingDeductionReportResponse;
 import com.localgov.service.dto.SalaryAdvanceRequestCreateRequest;
+import com.localgov.service.dto.SalaryAdvanceRoDecisionRequest;
 import com.localgov.service.dto.SalaryAdvanceRequestResponse;
 import com.localgov.service.dto.SalaryAdvanceTrackingEventResponse;
 import com.localgov.service.dto.SalaryAdvanceTrackingResponse;
@@ -30,6 +29,10 @@ import com.localgov.service.dto.SalaryAdvanceTrackingSummaryResponse;
 import com.localgov.service.exception.BusinessValidationException;
 import com.localgov.service.exception.ResourceNotFoundException;
 import com.localgov.service.mapper.SalaryAdvanceMapper;
+import com.localgov.service.payroll.AllowanceCalculator;
+import com.localgov.service.payroll.SalaryResolver;
+import com.localgov.service.payroll.model.AllowanceLine;
+import com.localgov.service.payroll.model.ResolvedSalary;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -59,8 +62,7 @@ public class SalaryAdvanceService {
         private static final String AUTHORITY_TYPE_CITY_COUNCIL = "City Council";
         private static final List<SalaryAdvanceRequestStatus> ACTIVE_ADVANCE_STATUSES = List.of(
             SalaryAdvanceRequestStatus.SUBMITTED,
-            SalaryAdvanceRequestStatus.PENDING_HEAD_APPROVAL,
-            SalaryAdvanceRequestStatus.PENDING_FINANCE_APPROVAL,
+            SalaryAdvanceRequestStatus.PENDING_RO_APPROVAL,
             SalaryAdvanceRequestStatus.APPROVED_FOR_DISBURSEMENT,
             SalaryAdvanceRequestStatus.DISBURSED
         );
@@ -72,6 +74,8 @@ public class SalaryAdvanceService {
     private final SalaryAdvanceDeductionRepository salaryAdvanceDeductionRepository;
     private final EmployeeService employeeService;
     private final SalaryAdvanceMapper salaryAdvanceMapper;
+    private final SalaryResolver salaryResolver;
+    private final AllowanceCalculator allowanceCalculator;
 
     public SalaryAdvanceService(
             AuthorityMasterRepository authorityMasterRepository,
@@ -80,7 +84,9 @@ public class SalaryAdvanceService {
             SalaryAdvanceWorkflowEventRepository salaryAdvanceWorkflowEventRepository,
             SalaryAdvanceDeductionRepository salaryAdvanceDeductionRepository,
             EmployeeService employeeService,
-            SalaryAdvanceMapper salaryAdvanceMapper
+            SalaryAdvanceMapper salaryAdvanceMapper,
+            SalaryResolver salaryResolver,
+            AllowanceCalculator allowanceCalculator
     ) {
         this.authorityMasterRepository = authorityMasterRepository;
         this.salaryAdvanceRequestRepository = salaryAdvanceRequestRepository;
@@ -89,6 +95,8 @@ public class SalaryAdvanceService {
         this.salaryAdvanceDeductionRepository = salaryAdvanceDeductionRepository;
         this.employeeService = employeeService;
         this.salaryAdvanceMapper = salaryAdvanceMapper;
+        this.salaryResolver = salaryResolver;
+        this.allowanceCalculator = allowanceCalculator;
     }
 
     @Transactional
@@ -127,63 +135,31 @@ public class SalaryAdvanceService {
     }
 
     @Transactional
-    public SalaryAdvanceRequestResponse headDecision(Long requestId, SalaryAdvanceHeadDecisionRequest request) {
+    /**
+     * Responsible Officer approval decision (Workflow A, T&Cs §90).
+     * The RO is the sole approver. Finance disburses separately.
+     */
+    public SalaryAdvanceRequestResponse roDecision(Long requestId, SalaryAdvanceRoDecisionRequest request) {
         SalaryAdvanceRequest salaryAdvanceRequest = getRequestEntity(requestId);
 
-        if (salaryAdvanceRequest.getStatus() != SalaryAdvanceRequestStatus.PENDING_HEAD_APPROVAL) {
-            throw new BusinessValidationException("Head decision allowed only when request is pending head approval");
-        }
-
-        if (salaryAdvanceRequest.getEligibilityStatus() != SalaryAdvanceEligibilityStatus.ELIGIBLE) {
-            throw new BusinessValidationException("Request is not eligible for head approval");
-        }
-
-        SalaryAdvanceHeadApproverTitle expectedTitle = expectedHeadTitleForAuthorityType(
-            salaryAdvanceRequest.getAuthorityTypeAtRequest()
-        );
-        if (request.headApproverTitle() != expectedTitle) {
+        if (salaryAdvanceRequest.getStatus() != SalaryAdvanceRequestStatus.PENDING_RO_APPROVAL) {
             throw new BusinessValidationException(
-                "Head approver title must be " + expectedTitle +
-                    " for authority type " + salaryAdvanceRequest.getAuthorityTypeAtRequest()
-            );
+                "RO decision allowed only when request is pending RO approval");
         }
 
-        salaryAdvanceRequest.setHeadApproverTitle(request.headApproverTitle());
-        salaryAdvanceRequest.setHeadApproverName(request.headApproverName());
-        salaryAdvanceRequest.setHeadDecision(request.decision());
-        salaryAdvanceRequest.setHeadDecisionAt(LocalDateTime.now());
-        salaryAdvanceRequest.setHeadDecisionNotes(request.notes());
-
-        if (request.decision() == SalaryAdvanceDecision.APPROVED) {
-            salaryAdvanceRequest.setStatus(SalaryAdvanceRequestStatus.PENDING_FINANCE_APPROVAL);
-            addWorkflowEvent(salaryAdvanceRequest, "HEAD_APPROVAL", "APPROVED", "HEAD_OF_INSTITUTION", request.headApproverName(), request.notes());
-        } else {
-            salaryAdvanceRequest.setStatus(SalaryAdvanceRequestStatus.REJECTED_BY_HEAD);
-            addWorkflowEvent(salaryAdvanceRequest, "HEAD_APPROVAL", "REJECTED", "HEAD_OF_INSTITUTION", request.headApproverName(), request.notes());
-        }
-
-        return toResponseDto(salaryAdvanceRequestRepository.save(salaryAdvanceRequest));
-    }
-
-    @Transactional
-    public SalaryAdvanceRequestResponse financeDecision(Long requestId, SalaryAdvanceFinanceDecisionRequest request) {
-        SalaryAdvanceRequest salaryAdvanceRequest = getRequestEntity(requestId);
-
-        if (salaryAdvanceRequest.getStatus() != SalaryAdvanceRequestStatus.PENDING_FINANCE_APPROVAL) {
-            throw new BusinessValidationException("Finance decision allowed only when request is pending finance approval");
-        }
-
-        salaryAdvanceRequest.setFinanceOfficerName(request.financeOfficerName());
+        salaryAdvanceRequest.setFinanceOfficerName(request.roApproverName());
         salaryAdvanceRequest.setFinanceDecision(request.decision());
         salaryAdvanceRequest.setFinanceDecisionAt(LocalDateTime.now());
         salaryAdvanceRequest.setFinanceDecisionNotes(request.notes());
 
         if (request.decision() == SalaryAdvanceDecision.APPROVED) {
             salaryAdvanceRequest.setStatus(SalaryAdvanceRequestStatus.APPROVED_FOR_DISBURSEMENT);
-            addWorkflowEvent(salaryAdvanceRequest, "FINANCE_APPROVAL", "APPROVED", "FINANCE", request.financeOfficerName(), request.notes());
+            addWorkflowEvent(salaryAdvanceRequest, "RO_APPROVAL", "APPROVED",
+                "RESPONSIBLE_OFFICER", request.roApproverName(), request.notes());
         } else {
-            salaryAdvanceRequest.setStatus(SalaryAdvanceRequestStatus.REJECTED_BY_FINANCE);
-            addWorkflowEvent(salaryAdvanceRequest, "FINANCE_APPROVAL", "REJECTED", "FINANCE", request.financeOfficerName(), request.notes());
+            salaryAdvanceRequest.setStatus(SalaryAdvanceRequestStatus.REJECTED_BY_RO);
+            addWorkflowEvent(salaryAdvanceRequest, "RO_APPROVAL", "REJECTED",
+                "RESPONSIBLE_OFFICER", request.roApproverName(), request.notes());
         }
 
         return toResponseDto(salaryAdvanceRequestRepository.save(salaryAdvanceRequest));
@@ -406,13 +382,35 @@ public class SalaryAdvanceService {
                 .orElseThrow(() -> new BusinessValidationException("No active salary advance policy configured"));
 
         Employee employee = request.getEmployee();
+
+        // Snapshot monthly gross (basic + recurring allowances) at apply time
+        LocalDate now = LocalDate.now();
+        LocalDate monthStart = now.withDayOfMonth(1);
+        LocalDate monthEnd = now.withDayOfMonth(now.lengthOfMonth());
+
+        // SalaryResolver / AllowanceCalculator key on employees.authority_code
+        // (e.g. "CHILANGA"), NOT the request authority_ref (e.g. "ZM-09-CHL").
+        String authorityCode = employee.getAuthorityCode();
+
+        ResolvedSalary resolvedSalary = salaryResolver.resolve(
+            employee.getEmployeeId(), authorityCode, monthStart, monthEnd);
+        List<AllowanceLine> monthlyAllowances = allowanceCalculator.compute(
+            employee.getEmployeeId(), authorityCode, resolvedSalary, monthStart);
+
+        BigDecimal monthlyGross = resolvedSalary.proratedBasic()
+            .add(monthlyAllowances.stream()
+                .map(AllowanceLine::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add));
+        monthlyGross = monthlyGross.setScale(MONEY_SCALE, MONEY_ROUNDING);
+        request.setMonthlyGrossSnapshot(monthlyGross);
+
         boolean hasRunningAdvance = salaryAdvanceDeductionRepository.existsByEmployee_IdAndStatus(
                 employee.getEmployeeId(),
                 SalaryAdvanceDeductionStatus.PENDING
         );
 
-        long serviceMonths = ChronoUnit.MONTHS.between(employee.getHireDate(), LocalDate.now());
-        BigDecimal maximumAllowed = employee.getBaseSalary()
+        long serviceMonths = ChronoUnit.MONTHS.between(employee.getHireDate(), now);
+        BigDecimal maximumAllowed = monthlyGross
                 .multiply(policy.getMaxAdvancePercent())
                 .divide(BigDecimal.valueOf(100), MONEY_SCALE, MONEY_ROUNDING);
 
@@ -424,13 +422,13 @@ public class SalaryAdvanceService {
             reasons.add("Minimum service months not met");
         }
         if (request.getRequestedAmount().compareTo(maximumAllowed) > 0) {
-            reasons.add("Requested amount exceeds policy cap of " + maximumAllowed);
+            reasons.add("Requested amount exceeds 1 month's gross salary (" + maximumAllowed + ")");
         }
         if (request.getRequestedInstallments() > policy.getMaxInstallments()) {
             reasons.add("Requested installments exceed policy maximum of " + policy.getMaxInstallments());
         }
         if (request.getRequestedInstallments() > 6) {
-            reasons.add("Requested installments exceed Rules 89-90 maximum of 6");
+            reasons.add("Requested installments exceed T&Cs §90 maximum of 6");
         }
 
         boolean eligible = reasons.isEmpty();
@@ -441,14 +439,17 @@ public class SalaryAdvanceService {
 
         if (eligible) {
             request.setEligibilityStatus(SalaryAdvanceEligibilityStatus.ELIGIBLE);
-            request.setEligibilityNotes("Eligible under active salary advance policy " + policy.getPolicyCode());
-            request.setStatus(SalaryAdvanceRequestStatus.PENDING_HEAD_APPROVAL);
-            addWorkflowEvent(request, "ELIGIBILITY_CHECK", "PASSED", "SYSTEM", "SYSTEM", request.getEligibilityNotes());
+            request.setEligibilityNotes("Eligible under policy " + policy.getPolicyCode()
+                + " (monthly gross " + monthlyGross + ")");
+            request.setStatus(SalaryAdvanceRequestStatus.PENDING_RO_APPROVAL);
+            addWorkflowEvent(request, "ELIGIBILITY_CHECK", "PASSED", "SYSTEM", "SYSTEM",
+                request.getEligibilityNotes());
         } else {
             request.setEligibilityStatus(SalaryAdvanceEligibilityStatus.INELIGIBLE);
             request.setEligibilityNotes(String.join("; ", reasons));
             request.setStatus(SalaryAdvanceRequestStatus.ELIGIBILITY_FAILED);
-            addWorkflowEvent(request, "ELIGIBILITY_CHECK", "FAILED", "SYSTEM", "SYSTEM", request.getEligibilityNotes());
+            addWorkflowEvent(request, "ELIGIBILITY_CHECK", "FAILED", "SYSTEM", "SYSTEM",
+                request.getEligibilityNotes());
         }
 
         salaryAdvanceRequestRepository.save(request);
@@ -557,10 +558,9 @@ public class SalaryAdvanceService {
 
     private String resolveCurrentStage(SalaryAdvanceRequestStatus status) {
         return switch (status) {
-            case SUBMITTED, ELIGIBILITY_FAILED, PENDING_HEAD_APPROVAL -> "Eligibility / Head Approval";
-            case REJECTED_BY_HEAD -> "Rejected by Head of Institution";
-            case PENDING_FINANCE_APPROVAL -> "Finance Approval";
-            case REJECTED_BY_FINANCE -> "Rejected by Finance";
+            case SUBMITTED, ELIGIBILITY_FAILED -> "Eligibility Check";
+            case PENDING_RO_APPROVAL -> "Awaiting Responsible Officer";
+            case REJECTED_BY_RO -> "Rejected by Responsible Officer";
             case APPROVED_FOR_DISBURSEMENT -> "Ready for Disbursement";
             case DISBURSED -> "Disbursed / Payroll Deductions Ongoing";
             case CANCELLED -> "Cancelled";
@@ -571,10 +571,8 @@ public class SalaryAdvanceService {
         return switch (status) {
             case SUBMITTED -> "Application received";
             case ELIGIBILITY_FAILED -> "Stopped at eligibility check";
-            case PENDING_HEAD_APPROVAL -> "Waiting for Head of Institution decision";
-            case REJECTED_BY_HEAD -> "Rejected at Head of Institution stage";
-            case PENDING_FINANCE_APPROVAL -> "Waiting for Finance approval";
-            case REJECTED_BY_FINANCE -> "Rejected at Finance stage";
+            case PENDING_RO_APPROVAL -> "Waiting for Responsible Officer decision";
+            case REJECTED_BY_RO -> "Rejected at Responsible Officer stage";
             case APPROVED_FOR_DISBURSEMENT -> "Approved and waiting disbursement";
             case DISBURSED -> "Disbursed and scheduled for payroll deductions";
             case CANCELLED -> "Application cancelled";

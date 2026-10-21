@@ -89,6 +89,9 @@ public class SalaryAdvanceRequest {
     @Column(name = "finance_officer_name", length = 120)
     private String financeOfficerName;
 
+    @Column(name = "monthly_gross_snapshot", precision = 18, scale = 2)
+    private BigDecimal monthlyGrossSnapshot;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "finance_decision", length = 20)
     private SalaryAdvanceDecision financeDecision;
@@ -313,6 +316,14 @@ public class SalaryAdvanceRequest {
 
     public void setFinanceOfficerName(String financeOfficerName) {
         this.financeOfficerName = financeOfficerName;
+    }
+
+    public BigDecimal getMonthlyGrossSnapshot() {
+        return monthlyGrossSnapshot;
+    }
+
+    public void setMonthlyGrossSnapshot(BigDecimal monthlyGrossSnapshot) {
+        this.monthlyGrossSnapshot = monthlyGrossSnapshot;
     }
 
     public SalaryAdvanceDecision getFinanceDecision() {
