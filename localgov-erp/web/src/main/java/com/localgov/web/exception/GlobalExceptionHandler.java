@@ -39,6 +39,14 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.UNAUTHORIZED, "AUTH_INVALID_CREDENTIALS", "Invalid username or password", request, null);
     }
 
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> handleAccessDenied(
+            org.springframework.security.access.AccessDeniedException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, "ACCESS_DENIED",
+                "Access denied", request, null);
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiErrorResponse> handleIllegalArgument(IllegalArgumentException ex, HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, "INVALID_ARGUMENT", ex.getMessage(), request, null);
