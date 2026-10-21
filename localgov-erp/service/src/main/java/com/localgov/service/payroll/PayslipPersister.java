@@ -73,7 +73,8 @@ public class PayslipPersister {
             BigDecimal netPay,
             java.time.LocalDate periodStart,
             java.time.LocalDate periodEnd,
-            BigDecimal overtimeAmount) {
+            BigDecimal overtimeAmount,
+            BigDecimal salaryAdvanceAmount) {
 
         BigDecimal allowancesTotal = allowances.stream()
             .map(AllowanceLine::amount)
@@ -125,6 +126,12 @@ public class PayslipPersister {
         insertLine(runItemId, authorityCode, "GRZ_FUNERAL_EMPLOYEE", "DEDUCTION",
             "GRZ Funeral Scheme (Employee)", statutory.grzFuneralEmployee(), 40, "GRZ_FUNERAL");
 
+        // Salary advance deduction (HR-sourced from salary_advance_deduction).
+        if (salaryAdvanceAmount != null && salaryAdvanceAmount.signum() > 0) {
+            insertLine(runItemId, authorityCode, "SALARY_ADVANCE", "DEDUCTION",
+                "Salary Advance", normalize(salaryAdvanceAmount), 50, null);
+        }
+
         insertLine(runItemId, authorityCode,
             statutory.contributionScheme().equals("NAPSA") ? "NAPSA_EMPLOYER" : "LASF_EMPLOYER",
             "EMPLOYER_CONTRIB",
@@ -139,7 +146,7 @@ public class PayslipPersister {
         PayslipData payslipData = buildPayslipData(
             authorityCode, runCode, employeeId, employeeName,
             salary, allowances, statutory, gross, totalDeductions, netPay,
-            periodStart, periodEnd, overtimeAmount);
+            periodStart, periodEnd, overtimeAmount, salaryAdvanceAmount);
 
         byte[] pdfBytes = renderer.render(payslipData);
         String pdfObjectKey = authorityCode + "/" + runCode + "/" + employeeId + ".pdf";
@@ -218,7 +225,8 @@ public class PayslipPersister {
             BigDecimal netPay,
             java.time.LocalDate periodStart,
             java.time.LocalDate periodEnd,
-            BigDecimal overtimeAmount) {
+            BigDecimal overtimeAmount,
+            BigDecimal salaryAdvanceAmount) {
 
         // Authorities row: name, address, logo key, registration numbers.
         Map<String, Object> authRow;
@@ -271,6 +279,10 @@ public class PayslipPersister {
             normalize(statutory.nhimaEmployee())));
         deductions.add(new PayslipData.Line("GRZ_FUNERAL_EMPLOYEE",
             "GRZ Funeral Scheme (Employee)", normalize(statutory.grzFuneralEmployee())));
+        if (salaryAdvanceAmount != null && salaryAdvanceAmount.signum() > 0) {
+            deductions.add(new PayslipData.Line("SALARY_ADVANCE",
+                "Salary Advance", normalize(salaryAdvanceAmount)));
+        }
 
         List<PayslipData.Line> employer = new ArrayList<>();
         employer.add(new PayslipData.Line(

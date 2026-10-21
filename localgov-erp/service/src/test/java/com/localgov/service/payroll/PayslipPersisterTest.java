@@ -56,7 +56,7 @@ class PayslipPersisterTest {
             new BigDecimal("10000.00"),
             new BigDecimal("2100.00"),
             new BigDecimal("7900.00"),
-            PERIOD_START, PERIOD_END, BigDecimal.ZERO);
+            PERIOD_START, PERIOD_END, BigDecimal.ZERO, BigDecimal.ZERO);
 
         assertThat(pp).isNotNull();
         assertThat(pp.authorityCode()).isEqualTo("CHILANGA");
@@ -95,7 +95,7 @@ class PayslipPersisterTest {
             new BigDecimal("2100.00"),
             new BigDecimal("8700.00"),    // net including OT
             PERIOD_START, PERIOD_END,
-            new BigDecimal("800.00"));    // overtime amount
+            new BigDecimal("800.00"), BigDecimal.ZERO);    // overtime, salaryAdvance
 
         assertThat(pp).isNotNull();
         assertThat(pp.pdfHash()).hasSize(64);
@@ -142,12 +142,12 @@ class PayslipPersisterTest {
         String hash1 = persister.persistItemAndLines(100L, "CHILANGA", "2026-10",
             "EMP-001", "Test", salary(), allowances(), statutory(),
             new BigDecimal("10000.00"), new BigDecimal("2100.00"),
-            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END, BigDecimal.ZERO).pdfHash();
+            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END, BigDecimal.ZERO, BigDecimal.ZERO).pdfHash();
 
         String hash2 = persister.persistItemAndLines(100L, "CHILANGA", "2026-10",
             "EMP-001", "Test", salary(), allowances(), statutory(),
             new BigDecimal("10000.00"), new BigDecimal("2100.00"),
-            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END, BigDecimal.ZERO).pdfHash();
+            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END, BigDecimal.ZERO, BigDecimal.ZERO).pdfHash();
 
         assertThat(hash1).isEqualTo(hash2);
     }
@@ -163,7 +163,7 @@ class PayslipPersisterTest {
         String hash1 = persister.persistItemAndLines(100L, "CHILANGA", "2026-10",
             "EMP-001", "Test", salary(), allowances(), statutory(),
             new BigDecimal("10000.00"), new BigDecimal("2100.00"),
-            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END, BigDecimal.ZERO).pdfHash();
+            new BigDecimal("7900.00"), PERIOD_START, PERIOD_END, BigDecimal.ZERO, BigDecimal.ZERO).pdfHash();
 
         ResolvedSalary salary2 = new ResolvedSalary(
             "EMP-001", "LGSS05", 3,
@@ -173,7 +173,7 @@ class PayslipPersisterTest {
         String hash2 = persister.persistItemAndLines(100L, "CHILANGA", "2026-10",
             "EMP-001", "Test", salary2, allowances(), statutory(),
             new BigDecimal("9000.00"), new BigDecimal("2100.00"),
-            new BigDecimal("6900.00"), PERIOD_START, PERIOD_END, BigDecimal.ZERO).pdfHash();
+            new BigDecimal("6900.00"), PERIOD_START, PERIOD_END, BigDecimal.ZERO, BigDecimal.ZERO).pdfHash();
 
         assertThat(hash1).isNotEqualTo(hash2);
     }

@@ -68,6 +68,8 @@ class PayrollControllerIntegrationTest {
         jdbc.execute("DELETE FROM erp_payroll_run");
         jdbc.execute("DELETE FROM erp_payroll_period");
         jdbc.execute("DELETE FROM erp_user_account");
+        jdbc.execute("DELETE FROM salary_advance_deduction WHERE employee_id = 'EMP-001'");
+        jdbc.execute("DELETE FROM salary_advance_request WHERE employee_id = 'EMP-001'");
         jdbc.execute("DELETE FROM overtime_sessions WHERE employee_id = 'EMP-001'");
         jdbc.execute("DELETE FROM employees WHERE authority_code IN ('CHILANGA','LUSAKA_CITY')");
 
@@ -97,6 +99,31 @@ class PayrollControllerIntegrationTest {
                 NUMERIC '289.08', 'approved', FALSE, 'manual', NOW()
             )
             """);
+
+        // Seed one salary_advance_request (fully approved + disbursed) and
+        // one PENDING deduction scheduled for this period.
+        Long advanceRequestId = jdbc.queryForObject("""
+            INSERT INTO salary_advance_request (
+                request_number, employee_id, requested_amount, reason,
+                eligibility_checked, eligibility_status,
+                head_decision, finance_decision,
+                status, disbursed_at
+            ) VALUES (
+                'SA-TEST-001', 'EMP-001', NUMERIC '500.00', 'Test advance',
+                TRUE, 'ELIGIBLE',
+                'APPROVED', 'APPROVED',
+                'DISBURSED', NOW()
+            ) RETURNING id
+            """, Long.class);
+
+        jdbc.update("""
+            INSERT INTO salary_advance_deduction (
+                salary_advance_request_id, employee_id, installment_no,
+                total_installments, scheduled_pay_period, deduction_amount, status
+            ) VALUES (
+                ?, 'EMP-001', 1, 1, DATE '2026-10-31', NUMERIC '500.00', 'PENDING'
+            )
+            """, advanceRequestId);
 
         jdbc.update("""
             INSERT INTO erp_user_account (
@@ -184,6 +211,20 @@ class PayrollControllerIntegrationTest {
 
         assertThat(otSession.get("paid")).isEqualTo(true);
         assertThat(otSession.get("status")).isEqualTo("paid");
+
+        // Salary advance: engine sourced the PENDING deduction, emitted
+        // the SALARY_ADVANCE line, and marked the deduction APPLIED.
+        Map<String, Object> advanceLine = jdbc.queryForMap(
+            "SELECT amount, line_type FROM erp_payroll_run_item_line " +
+            "WHERE line_code = 'SALARY_ADVANCE' AND authority_code = 'CHILANGA'");
+        assertThat(advanceLine.get("line_type")).isEqualTo("DEDUCTION");
+        assertThat((BigDecimal) advanceLine.get("amount")).isEqualByComparingTo("500.00");
+
+        Map<String, Object> advanceDeduction = jdbc.queryForMap(
+            "SELECT status, applied_at FROM salary_advance_deduction " +
+            "WHERE employee_id = 'EMP-001' AND scheduled_pay_period = DATE '2026-10-31'");
+        assertThat(advanceDeduction.get("status")).isEqualTo("APPLIED");
+        assertThat(advanceDeduction.get("applied_at")).isNotNull();
     }
 
     @Test

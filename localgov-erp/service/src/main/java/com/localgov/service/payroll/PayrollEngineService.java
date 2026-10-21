@@ -57,19 +57,22 @@ public class PayrollEngineService {
     private final StatutoryCalculator statutoryCalculator;
     private final PayslipPersister payslipPersister;
     private final com.localgov.service.OvertimeService overtimeService;
+    private final SalaryAdvanceSourcer salaryAdvanceSourcer;
 
     public PayrollEngineService(JdbcTemplate jdbcTemplate,
                                 SalaryResolver salaryResolver,
                                 AllowanceCalculator allowanceCalculator,
                                 StatutoryCalculator statutoryCalculator,
                                 PayslipPersister payslipPersister,
-                                com.localgov.service.OvertimeService overtimeService) {
+                                com.localgov.service.OvertimeService overtimeService,
+                                SalaryAdvanceSourcer salaryAdvanceSourcer) {
         this.jdbcTemplate = jdbcTemplate;
         this.salaryResolver = salaryResolver;
         this.allowanceCalculator = allowanceCalculator;
         this.statutoryCalculator = statutoryCalculator;
         this.payslipPersister = payslipPersister;
         this.overtimeService = overtimeService;
+        this.salaryAdvanceSourcer = salaryAdvanceSourcer;
     }
 
     /**
@@ -171,6 +174,11 @@ public class PayrollEngineService {
             overtimeService.groupPayrollCutoffByEmployee(periodMonth, periodYear);
         List<Long> allSessionIds = new ArrayList<>();
 
+        // Source salary advance deductions scheduled for this period
+        Map<String, SalaryAdvanceSourcer.Aggregate> salAdvByEmployee =
+            salaryAdvanceSourcer.sourceForRun(periodEnd);
+        List<Long> allSalaryAdvanceIds = new ArrayList<>();
+
         for (Map<String, Object> emp : employees) {
             String employeeId = (String) emp.get("employee_id");
             String employeeName = (String) emp.get("full_name");
@@ -210,13 +218,23 @@ public class PayrollEngineService {
 
                 // 5f. Total deductions
                 BigDecimal totalDeductions = statutory.totalEmployeeDeductions();
-                BigDecimal netPay = gross.subtract(totalDeductions);
+
+                // 5g. Salary advance deduction (from HR workflow)
+                SalaryAdvanceSourcer.Aggregate salAdv = salAdvByEmployee.get(employeeId);
+                BigDecimal salaryAdvanceAmount = salAdv != null
+                    ? salAdv.totalAmount() : BigDecimal.ZERO;
+                if (salAdv != null) {
+                    allSalaryAdvanceIds.addAll(salAdv.installmentIds());
+                }
+
+                // Net = gross - statutory deductions - salary advance
+                BigDecimal netPay = gross.subtract(totalDeductions).subtract(salaryAdvanceAmount);
 
                 // 5g. Persist erp_payroll_run_item and erp_payroll_run_item_line
                 PayslipPersister.PendingPayslip pp = payslipPersister.persistItemAndLines(
                     runId, authorityCode, runCode, employeeId, employeeName,
                     salary, allowances, statutory, gross, totalDeductions, netPay,
-                    periodStart, periodEnd, overtimeAmount);
+                    periodStart, periodEnd, overtimeAmount, salaryAdvanceAmount);
 
                 if (otAggregate != null) {
                     allSessionIds.addAll(otAggregate.sessionIds());
@@ -242,6 +260,7 @@ public class PayrollEngineService {
         // 6-OT. Mark OT sessions paid. Same transaction as the run: if
         //       anything after this throws, the paid flag rolls back.
         overtimeService.markPayrollPaid(allSessionIds);
+        salaryAdvanceSourcer.markApplied(allSalaryAdvanceIds);
 
         // 7. Update run header totals + status + run_hash
         jdbcTemplate.update(
