@@ -237,7 +237,7 @@ class OvertimeControllerAuthorizationIntegrationTest {
                 employee_id, authority_code, first_name, last_name,
                 salary_scale, current_notch, date_of_first_appointment,
                 date_reported, employment_status, bargaining_unit, union_code
-            ) VALUES (?, 'CHILANGA', ?, ?, 'LGSS08', 1,
+            ) VALUES (?, 'ZM-09-01', ?, ?, 'LGSS08', 1,
                 DATE '2015-06-01', DATE '2015-06-01',
                 'ACTIVE', 'UNIONIZED_ZULAWU', 'ZULAWU')
             """, employeeId, firstName, lastName);
@@ -249,7 +249,7 @@ class OvertimeControllerAuthorizationIntegrationTest {
                 username, password_hash, employee_id, roles_csv,
                 dashboard_position_id, authority_code, authority_type, is_active
             ) VALUES (?, '{noop}dev', ?, ?,
-                'PAYROLL_CLERK', 'CHILANGA', 'TOWN', TRUE)
+                'PAYROLL_CLERK', 'ZM-09-01', 'TOWN', TRUE)
             """, username, employeeId, rolesCsv);
     }
 

@@ -41,6 +41,9 @@ public class SalaryAdvanceRequest {
     @Column(name = "authority_ref", length = 30)
     private String authorityRef;
 
+    @Column(name = "authority_code", length = 50)
+    private String authorityCode;
+
     @Column(name = "authority_type_at_request", length = 50)
     private String authorityTypeAtRequest;
 
@@ -196,6 +199,14 @@ public class SalaryAdvanceRequest {
 
     public void setAuthorityRef(String authorityRef) {
         this.authorityRef = authorityRef;
+    }
+
+    public String getAuthorityCode() {
+        return authorityCode;
+    }
+
+    public void setAuthorityCode(String authorityCode) {
+        this.authorityCode = authorityCode;
     }
 
     public String getAuthorityTypeAtRequest() {

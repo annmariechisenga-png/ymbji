@@ -112,13 +112,23 @@ public class SalaryAdvanceService {
             throw new BusinessValidationException("Officer already has an active salary advance request");
         }
 
-        var authority = authorityMasterRepository.findByAuthorityRef(request.authorityRef())
-            .orElseThrow(() -> new BusinessValidationException("Unknown authority reference: " + request.authorityRef()));
+        // Derive council from the employee — never from client input.
+        // Prevents submission against a council the caller doesn't belong to.
+        String effectiveAuthorityCode = employee.getAuthorityCode();
+        if (effectiveAuthorityCode == null || effectiveAuthorityCode.isBlank()) {
+            throw new BusinessValidationException(
+                "Employee has no authority_code; cannot submit advance");
+        }
+
+        var authority = authorityMasterRepository.findByAuthorityRef(effectiveAuthorityCode)
+            .orElseThrow(() -> new BusinessValidationException(
+                "Employee's council not found in authority master: " + effectiveAuthorityCode));
 
         SalaryAdvanceRequest salaryAdvanceRequest = new SalaryAdvanceRequest();
         salaryAdvanceRequest.setRequestNumber(generateRequestNumber());
         salaryAdvanceRequest.setEmployee(employee);
         salaryAdvanceRequest.setAuthorityRef(authority.getAuthorityRef());
+        salaryAdvanceRequest.setAuthorityCode(authority.getAuthorityRef());
         salaryAdvanceRequest.setAuthorityTypeAtRequest(authority.getAuthorityType());
         salaryAdvanceRequest.setRequestedAmount(normalizeMoney(request.requestedAmount()));
         salaryAdvanceRequest.setRequestedInstallments(request.requestedInstallments());
@@ -584,6 +594,7 @@ public class SalaryAdvanceService {
             SalaryAdvanceDeduction deduction = new SalaryAdvanceDeduction();
             deduction.setSalaryAdvanceRequest(request);
             deduction.setEmployee(request.getEmployee());
+            deduction.setAuthorityCode(request.getAuthorityCode());
             deduction.setInstallmentNo(installmentNo);
             deduction.setTotalInstallments(installmentCount);
             deduction.setScheduledPayPeriod(firstPayPeriod.plusMonths(installmentNo - 1L));
@@ -605,6 +616,7 @@ public class SalaryAdvanceService {
     ) {
         SalaryAdvanceWorkflowEvent event = new SalaryAdvanceWorkflowEvent();
         event.setSalaryAdvanceRequest(request);
+        event.setAuthorityCode(request.getAuthorityCode());
         event.setEventStage(stage);
         event.setEventAction(action);
         event.setActorRole(actorRole);

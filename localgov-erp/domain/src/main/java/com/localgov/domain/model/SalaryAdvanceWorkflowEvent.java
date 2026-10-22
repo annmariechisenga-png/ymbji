@@ -37,6 +37,9 @@ public class SalaryAdvanceWorkflowEvent {
     @Column(name = "actor_name", length = 120)
     private String actorName;
 
+    @Column(name = "authority_code", length = 50)
+    private String authorityCode;
+
     @Column(name = "event_notes", length = 500)
     private String eventNotes;
 
@@ -112,5 +115,13 @@ public class SalaryAdvanceWorkflowEvent {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getAuthorityCode() {
+        return authorityCode;
+    }
+
+    public void setAuthorityCode(String authorityCode) {
+        this.authorityCode = authorityCode;
     }
 }

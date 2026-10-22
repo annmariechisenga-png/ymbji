@@ -49,6 +49,9 @@ public class SalaryAdvanceDeduction {
     @Column(name = "status", nullable = false, length = 20)
     private SalaryAdvanceDeductionStatus status;
 
+    @Column(name = "authority_code", length = 50)
+    private String authorityCode;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "payroll_record_id")
     private PayrollRecord payrollRecord;
@@ -155,5 +158,13 @@ public class SalaryAdvanceDeduction {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getAuthorityCode() {
+        return authorityCode;
+    }
+
+    public void setAuthorityCode(String authorityCode) {
+        this.authorityCode = authorityCode;
     }
 }

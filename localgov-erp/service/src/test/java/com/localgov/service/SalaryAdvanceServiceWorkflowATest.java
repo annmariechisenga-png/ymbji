@@ -79,7 +79,7 @@ class SalaryAdvanceServiceWorkflowATest {
             .thenReturn(true);
 
         SalaryAdvanceRequestCreateRequest req = new SalaryAdvanceRequestCreateRequest(
-            "EMP-001", "CHILANGA", new BigDecimal("3000.00"), 3,
+            "EMP-001", "ZM-09-01", new BigDecimal("3000.00"), 3,
             "School fees for children", "Test Officer");
 
         assertThatThrownBy(() -> service.submitRequest(req))

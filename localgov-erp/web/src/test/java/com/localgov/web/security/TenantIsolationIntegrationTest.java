@@ -97,8 +97,8 @@ class TenantIsolationIntegrationTest {
 
         adminJdbc.update("""
             INSERT INTO employees (employee_id, authority_code, first_name, last_name, salary_scale)
-            VALUES ('CHILANGA-EMP-01', 'CHILANGA', 'Alice', 'A', 'LGSS04'),
-                   ('LUSAKA-EMP-01',   'LUSAKA_CITY', 'Bob',   'B', 'LGSS05')
+            VALUES ('CHILANGA-EMP-01', 'ZM-09-01', 'Alice', 'A', 'LGSS04'),
+                   ('LUSAKA-EMP-01',   'ZM-09-05', 'Bob',   'B', 'LGSS05')
             """);
 
         adminJdbc.update("""
@@ -106,43 +106,43 @@ class TenantIsolationIntegrationTest {
                                           roles_csv, dashboard_position_id,
                                           authority_code, authority_type, is_active)
             VALUES ('chilanga.user', '{noop}dev', 'CHILANGA-EMP-01',
-                    'ADMIN,PAYROLL', 'PAYROLL_CLERK', 'CHILANGA', 'TOWN', TRUE),
+                    'ADMIN,PAYROLL', 'PAYROLL_CLERK', 'ZM-09-01', 'TOWN', TRUE),
                    ('lusaka.user',   '{noop}dev', 'LUSAKA-EMP-01',
-                    'ADMIN,PAYROLL', 'PAYROLL_CLERK', 'LUSAKA_CITY', 'CITY', TRUE)
+                    'ADMIN,PAYROLL', 'PAYROLL_CLERK', 'ZM-09-05', 'CITY', TRUE)
             """);
 
         Long chilangaPeriodId = adminJdbc.queryForObject("""
             INSERT INTO erp_payroll_period (period_code, period_year, period_month, period_start, period_end, authority_code)
-            VALUES ('2026-10-CHILANGA', 2026, 10, '2026-10-01', '2026-10-31', 'CHILANGA')
+            VALUES ('2026-10-CHILANGA', 2026, 10, '2026-10-01', '2026-10-31', 'ZM-09-01')
             RETURNING id
             """, Long.class);
 
         Long lusakaPeriodId = adminJdbc.queryForObject("""
             INSERT INTO erp_payroll_period (period_code, period_year, period_month, period_start, period_end, authority_code)
-            VALUES ('2026-10-LUSAKA', 2026, 10, '2026-10-01', '2026-10-31', 'LUSAKA_CITY')
+            VALUES ('2026-10-LUSAKA', 2026, 10, '2026-10-01', '2026-10-31', 'ZM-09-05')
             RETURNING id
             """, Long.class);
 
         chilangaRunId = adminJdbc.queryForObject("""
             INSERT INTO erp_payroll_run (run_code, payroll_period_id, run_status, authority_code)
-            VALUES ('RUN-CHILANGA-01', ?, 'COMPLETE', 'CHILANGA')
+            VALUES ('RUN-CHILANGA-01', ?, 'COMPLETE', 'ZM-09-01')
             RETURNING id
             """, Long.class, chilangaPeriodId);
 
         lusakaRunId = adminJdbc.queryForObject("""
             INSERT INTO erp_payroll_run (run_code, payroll_period_id, run_status, authority_code)
-            VALUES ('RUN-LUSAKA-01', ?, 'COMPLETE', 'LUSAKA_CITY')
+            VALUES ('RUN-LUSAKA-01', ?, 'COMPLETE', 'ZM-09-05')
             RETURNING id
             """, Long.class, lusakaPeriodId);
 
         adminJdbc.update("""
             INSERT INTO erp_payroll_run_item (payroll_run_id, employee_id, employee_name, basic_salary, gross_pay, total_deductions, net_pay, authority_code)
-            VALUES (?, 'CHILANGA-EMP-01', 'Alice A', 5000, 5000, 0, 5000, 'CHILANGA')
+            VALUES (?, 'CHILANGA-EMP-01', 'Alice A', 5000, 5000, 0, 5000, 'ZM-09-01')
             """, chilangaRunId);
 
         adminJdbc.update("""
             INSERT INTO erp_payroll_run_item (payroll_run_id, employee_id, employee_name, basic_salary, gross_pay, total_deductions, net_pay, authority_code)
-            VALUES (?, 'LUSAKA-EMP-01', 'Bob B', 6000, 6000, 0, 6000, 'LUSAKA_CITY')
+            VALUES (?, 'LUSAKA-EMP-01', 'Bob B', 6000, 6000, 0, 6000, 'ZM-09-05')
             """, lusakaRunId);
     }
 
@@ -191,24 +191,24 @@ class TenantIsolationIntegrationTest {
     @Test
     @DisplayName("RLS: CHILANGA sees only CHILANGA rows")
     void rls_chilangaContext_onlyChilanga() throws Exception {
-        int own = queryCountAsApp("CHILANGA",
-                "SELECT COUNT(*) FROM erp_payroll_run_item WHERE authority_code = 'CHILANGA'");
+        int own = queryCountAsApp("ZM-09-01",
+                "SELECT COUNT(*) FROM erp_payroll_run_item WHERE authority_code = 'ZM-09-01'");
         assertThat(own).isEqualTo(1);
 
-        int cross = queryCountAsApp("CHILANGA",
-                "SELECT COUNT(*) FROM erp_payroll_run_item WHERE authority_code = 'LUSAKA_CITY'");
+        int cross = queryCountAsApp("ZM-09-01",
+                "SELECT COUNT(*) FROM erp_payroll_run_item WHERE authority_code = 'ZM-09-05'");
         assertThat(cross).isZero();
     }
 
     @Test
     @DisplayName("RLS: LUSAKA_CITY sees only LUSAKA_CITY rows")
     void rls_lusakaContext_onlyLusaka() throws Exception {
-        int own = queryCountAsApp("LUSAKA_CITY",
-                "SELECT COUNT(*) FROM erp_payroll_run_item WHERE authority_code = 'LUSAKA_CITY'");
+        int own = queryCountAsApp("ZM-09-05",
+                "SELECT COUNT(*) FROM erp_payroll_run_item WHERE authority_code = 'ZM-09-05'");
         assertThat(own).isEqualTo(1);
 
-        int cross = queryCountAsApp("LUSAKA_CITY",
-                "SELECT COUNT(*) FROM erp_payroll_run_item WHERE authority_code = 'CHILANGA'");
+        int cross = queryCountAsApp("ZM-09-05",
+                "SELECT COUNT(*) FROM erp_payroll_run_item WHERE authority_code = 'ZM-09-01'");
         assertThat(cross).isZero();
     }
 
@@ -219,13 +219,13 @@ class TenantIsolationIntegrationTest {
         // on (payroll_run_id, employee_id) doesn't preempt RLS.
         Long freshLusakaPeriodId = adminJdbc.queryForObject("""
             INSERT INTO erp_payroll_period (period_code, period_year, period_month, period_start, period_end, authority_code)
-            VALUES ('2026-11-LUSAKA', 2026, 11, '2026-11-01', '2026-11-30', 'LUSAKA_CITY')
+            VALUES ('2026-11-LUSAKA', 2026, 11, '2026-11-01', '2026-11-30', 'ZM-09-05')
             RETURNING id
             """, Long.class);
 
         Long freshLusakaRunId = adminJdbc.queryForObject("""
             INSERT INTO erp_payroll_run (run_code, payroll_period_id, run_status, authority_code)
-            VALUES ('RUN-LUSAKA-02', ?, 'COMPLETE', 'LUSAKA_CITY')
+            VALUES ('RUN-LUSAKA-02', ?, 'COMPLETE', 'ZM-09-05')
             RETURNING id
             """, Long.class, freshLusakaPeriodId);
 
@@ -233,14 +233,14 @@ class TenantIsolationIntegrationTest {
                 postgres.getJdbcUrl(), APP_USER, APP_PASS)) {
             conn.setAutoCommit(false);
             try (var st = conn.prepareStatement(
-                    "SET LOCAL app.current_tenant = 'CHILANGA'")) {
+                    "SET LOCAL app.current_tenant = 'ZM-09-01'")) {
                 st.execute();
             }
             try (var ps = conn.prepareStatement("""
                     INSERT INTO erp_payroll_run_item
                         (payroll_run_id, employee_id, employee_name, basic_salary,
                          gross_pay, total_deductions, net_pay, authority_code)
-                    VALUES (?, 'LUSAKA-EMP-01', 'Bob B', 6000, 6000, 0, 6000, 'LUSAKA_CITY')
+                    VALUES (?, 'LUSAKA-EMP-01', 'Bob B', 6000, 6000, 0, 6000, 'ZM-09-05')
                     """)) {
                 ps.setLong(1, freshLusakaRunId);
                 assertThatThrownBy(ps::executeUpdate)

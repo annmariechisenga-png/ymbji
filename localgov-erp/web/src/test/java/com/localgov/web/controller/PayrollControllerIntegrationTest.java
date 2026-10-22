@@ -71,7 +71,7 @@ class PayrollControllerIntegrationTest {
         jdbc.execute("DELETE FROM salary_advance_deduction WHERE employee_id = 'EMP-001'");
         jdbc.execute("DELETE FROM salary_advance_request WHERE employee_id = 'EMP-001'");
         jdbc.execute("DELETE FROM overtime_sessions WHERE employee_id = 'EMP-001'");
-        jdbc.execute("DELETE FROM employees WHERE authority_code IN ('CHILANGA','LUSAKA_CITY')");
+        jdbc.execute("DELETE FROM employees WHERE authority_code IN ('ZM-09-01','ZM-09-05')");
 
         jdbc.update("""
             INSERT INTO employees (
@@ -79,7 +79,7 @@ class PayrollControllerIntegrationTest {
                 salary_scale, current_notch, date_of_first_appointment,
                 date_reported, employment_status, bargaining_unit, union_code
             ) VALUES
-            ('EMP-001', 'CHILANGA', 'Test', 'Employee',
+            ('EMP-001', 'ZM-09-01', 'Test', 'Employee',
              'LGSS08', 1, DATE '2015-06-01', DATE '2015-06-01', 'ACTIVE',
              'UNIONIZED_ZULAWU', 'ZULAWU')
             """);
@@ -131,7 +131,7 @@ class PayrollControllerIntegrationTest {
                 dashboard_position_id, authority_code, authority_type, is_active
             ) VALUES
             ('chilanga.admin', '{noop}dev', 'EMP-001',
-             'ADMIN,PAYROLL', 'PAYROLL_CLERK', 'CHILANGA', 'TOWN', TRUE)
+             'ADMIN,PAYROLL', 'PAYROLL_CLERK', 'ZM-09-01', 'TOWN', TRUE)
             """);
 
         periodId = jdbc.queryForObject("""
@@ -140,7 +140,7 @@ class PayrollControllerIntegrationTest {
                 period_start, period_end, authority_code
             ) VALUES (
                 '2026-10', 2026, 10,
-                DATE '2026-10-01', DATE '2026-10-31', 'CHILANGA'
+                DATE '2026-10-01', DATE '2026-10-31', 'ZM-09-01'
             ) RETURNING id
             """, Long.class);
     }
@@ -169,18 +169,18 @@ class PayrollControllerIntegrationTest {
 
         Map<String, Object> run = jdbc.queryForMap(
             "SELECT run_status, total_employees, run_hash " +
-            "FROM erp_payroll_run WHERE authority_code = 'CHILANGA'");
+            "FROM erp_payroll_run WHERE authority_code = 'ZM-09-01'");
         assertThat(run.get("run_status")).isEqualTo("COMPLETE");
         assertThat(((Number) run.get("total_employees")).intValue()).isEqualTo(1);
 
         // Payslip row: real PDF key + hash, chained to the run_hash
         Map<String, Object> payslip = jdbc.queryForMap(
             "SELECT pdf_object_key, pdf_hash, run_hash FROM payslips " +
-            "WHERE employee_id = 'EMP-001' AND authority_code = 'CHILANGA'");
+            "WHERE employee_id = 'EMP-001' AND authority_code = 'ZM-09-01'");
 
         assertThat(payslip.get("pdf_object_key"))
             .asString()
-            .startsWith("CHILANGA/")
+            .startsWith("ZM-09-01/")
             .endsWith("/EMP-001.pdf");
 
         assertThat(payslip.get("pdf_hash"))
@@ -198,7 +198,7 @@ class PayrollControllerIntegrationTest {
         Map<String, Object> overtimeLine = jdbc.queryForMap(
             "SELECT amount, line_type, source_rule_code " +
             "FROM erp_payroll_run_item_line " +
-            "WHERE line_code = 'OVERTIME' AND authority_code = 'CHILANGA'");
+            "WHERE line_code = 'OVERTIME' AND authority_code = 'ZM-09-01'");
 
         assertThat(overtimeLine.get("line_type")).isEqualTo("EARNING");
         assertThat(overtimeLine.get("source_rule_code")).isEqualTo("OVERTIME_HOURLY_RATE");
@@ -216,7 +216,7 @@ class PayrollControllerIntegrationTest {
         // the SALARY_ADVANCE line, and marked the deduction APPLIED.
         Map<String, Object> advanceLine = jdbc.queryForMap(
             "SELECT amount, line_type FROM erp_payroll_run_item_line " +
-            "WHERE line_code = 'SALARY_ADVANCE' AND authority_code = 'CHILANGA'");
+            "WHERE line_code = 'SALARY_ADVANCE' AND authority_code = 'ZM-09-01'");
         assertThat(advanceLine.get("line_type")).isEqualTo("DEDUCTION");
         assertThat((BigDecimal) advanceLine.get("amount")).isEqualByComparingTo("500.00");
 
@@ -269,7 +269,7 @@ class PayrollControllerIntegrationTest {
         assertThat(n1.get("runHash").asText()).isEqualTo(n2.get("runHash").asText());
 
         Integer runCount = jdbc.queryForObject(
-            "SELECT COUNT(*) FROM erp_payroll_run WHERE authority_code = 'CHILANGA'",
+            "SELECT COUNT(*) FROM erp_payroll_run WHERE authority_code = 'ZM-09-01'",
             Integer.class);
         assertThat(runCount).isEqualTo(1);
     }

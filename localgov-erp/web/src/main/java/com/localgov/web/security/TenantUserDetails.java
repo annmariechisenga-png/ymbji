@@ -6,7 +6,7 @@ package com.localgov.web.security;
  * TenantContextFilter can set app.current_tenant before any query runs.
  *
  * The authority_code must be non-null, non-empty, and match
- * ^[A-Z0-9_]+$ (uppercase letters, digits, underscore).
+ * ^[A-Z0-9_-]+$ (uppercase letters, digits, underscore).
  */
 public interface TenantUserDetails {
     String getAuthorityCode();

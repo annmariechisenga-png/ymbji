@@ -43,7 +43,7 @@ public class TenantContextFilter extends OncePerRequestFilter {
 
             String authorityCode = user.getAuthorityCode();
 
-            if (authorityCode == null || !authorityCode.matches("^[A-Z0-9_]+$")) {
+            if (authorityCode == null || !authorityCode.matches("^[A-Z0-9_-]+$")) {
                 // Fail loudly: a valid user with a broken authority_code is a
                 // configuration error that should not silently fall through
                 // to "0 rows seen" behaviour.

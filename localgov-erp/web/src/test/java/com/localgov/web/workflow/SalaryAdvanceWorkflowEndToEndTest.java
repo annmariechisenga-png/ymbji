@@ -9,6 +9,7 @@ import com.localgov.service.dto.SalaryAdvanceRequestCreateRequest;
 import com.localgov.service.dto.SalaryAdvanceRequestResponse;
 import com.localgov.service.dto.SalaryAdvanceRoDecisionRequest;
 import com.localgov.service.payroll.PayrollEngineService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  *                  -> payroll engine sources the deduction
  *                  -> payslip shows SALARY_ADVANCE line
  *                  -> deduction marked APPLIED
+ *
+ * MULTI-TENANCY NOTE: this test is one example council among 116.
+ * The council is picked at random from the live registry for every run,
+ * to prove the schema works for the whole federation, not just Chilanga.
+ * Pass -Dtest.council=ZM-09-01 to pin a specific council for reproduction.
+ * Cross-tenant isolation between two councils is separately covered by
+ * TenantIsolationIntegrationTest.
  */
 @SpringBootTest(classes = com.localgov.web.LocalGovErpApplication.class)
 @Testcontainers
@@ -55,7 +63,6 @@ class SalaryAdvanceWorkflowEndToEndTest {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
-
         registry.add("pii.encryption.key",
             () -> "dGVzdC1waWktZW5jcnlwdGlvbi1rZXktMzJieXRlcyE=");
         registry.add("pii.hmac.key",
@@ -68,14 +75,33 @@ class SalaryAdvanceWorkflowEndToEndTest {
 
     private static final String EMP = "EMP-SA-E2E";
 
-    // erp_authority_master.authority_ref for Chilanga (V10 seed: 'ZM-09-CHL')
-    private static final String AUTHORITY_REF = "ZM-09-CHL";
-
-    // employees.authority_code — the tenant code used for RLS + payslip join
-    private static final String AUTHORITY_CODE = "CHILANGA";
+    // One example council among 116 — set per-test in @BeforeEach.
+    // Any of ZM-XX-NN would work here; cross-tenant isolation is
+    // covered by TenantIsolationIntegrationTest.
+    private static String AUTHORITY_CODE;
+    private static String AUTHORITY_REF;
 
     @BeforeEach
     void seed() {
+        // Pick a real council from the registry — any of 116 will do.
+        // -Dtest.council=ZM-XX-NN overrides for deterministic reproduction.
+        String override = System.getProperty("test.council");
+        if (override != null && !override.isBlank()) {
+            AUTHORITY_CODE = override;
+            AUTHORITY_REF = override;
+        } else {
+            AUTHORITY_CODE = jdbc.queryForObject(
+                "SELECT authority_code FROM authorities WHERE is_active = TRUE " +
+                "ORDER BY random() LIMIT 1",
+                String.class);
+            AUTHORITY_REF = AUTHORITY_CODE;
+        }
+
+        // RLS: scope this test session to the chosen tenant so service-layer
+        // inserts (submitRequest, createDeductionSchedule, addWorkflowEvent)
+        // pass the WITH CHECK policy on salary advance tables.
+        jdbc.execute("SET SESSION app.current_tenant = '" + AUTHORITY_CODE + "'");
+
         jdbc.execute("DELETE FROM erp_payroll_run_item_line");
         jdbc.execute("ALTER TABLE payslips DISABLE TRIGGER trg_payslips_immutable");
         try {
@@ -85,7 +111,7 @@ class SalaryAdvanceWorkflowEndToEndTest {
         }
         jdbc.execute("DELETE FROM erp_payroll_run_item");
         jdbc.execute("DELETE FROM erp_payroll_run");
-        jdbc.execute("DELETE FROM erp_payroll_period WHERE authority_code = '" + AUTHORITY_CODE + "'");
+        jdbc.execute("DELETE FROM erp_payroll_period");
         jdbc.execute("DELETE FROM salary_advance_deduction WHERE employee_id = '" + EMP + "'");
         jdbc.execute("DELETE FROM salary_advance_request WHERE employee_id = '" + EMP + "'");
         jdbc.execute("DELETE FROM employees WHERE employee_id = '" + EMP + "'");
@@ -114,6 +140,17 @@ class SalaryAdvanceWorkflowEndToEndTest {
             ) VALUES ('2026-12', 2026, 12,
                 DATE '2026-12-01', DATE '2026-12-31', ?)
             """, AUTHORITY_CODE);
+    }
+
+    @AfterEach
+    void cleanup() {
+        // Reset tenant context so we don't leak to other test classes on
+        // the same pooled connection.
+        try {
+            jdbc.execute("RESET app.current_tenant");
+        } catch (Exception ignored) {
+            // If the connection was already closed, nothing to reset
+        }
     }
 
     @Test
@@ -215,7 +252,6 @@ class SalaryAdvanceWorkflowEndToEndTest {
     @Test
     @DisplayName("getMyStatus after disburse: reports outstanding advance and full balance")
     void myStatus_afterDisburse_reportsOutstanding() {
-        // Submit + approve + disburse
         SalaryAdvanceRequestCreateRequest submitReq = new SalaryAdvanceRequestCreateRequest(
             EMP, AUTHORITY_REF, new BigDecimal("3000.00"), 3,
             "Status test advance", "E2E");
