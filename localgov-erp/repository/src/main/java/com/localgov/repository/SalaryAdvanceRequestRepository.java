@@ -28,4 +28,9 @@ public interface SalaryAdvanceRequestRepository extends JpaRepository<SalaryAdva
 
     @Query("SELECT CASE WHEN COUNT(r) > 0 THEN TRUE ELSE FALSE END FROM SalaryAdvanceRequest r WHERE r.employee.employeeId = :employeeId AND r.status IN :statuses")
     boolean existsByEmployeeIdAndStatusIn(@Param("employeeId") String employeeId, @Param("statuses") List<SalaryAdvanceRequestStatus> statuses);
+
+    @Query("SELECT r FROM SalaryAdvanceRequest r WHERE r.employee.employeeId = :employeeId AND r.status IN :statuses ORDER BY r.createdAt DESC")
+    List<SalaryAdvanceRequest> findByEmployeeIdAndStatusInOrderByCreatedAtDesc(
+            @Param("employeeId") String employeeId,
+            @Param("statuses") List<SalaryAdvanceRequestStatus> statuses);
 }

@@ -50,4 +50,17 @@ public interface SalaryAdvanceDeductionRepository extends JpaRepository<SalaryAd
     long countBySalaryAdvanceRequest_Id(Long salaryAdvanceRequestId);
 
     long countBySalaryAdvanceRequest_IdAndStatus(Long salaryAdvanceRequestId, SalaryAdvanceDeductionStatus status);
+
+    @Query("SELECT COALESCE(SUM(d.deductionAmount), 0) FROM SalaryAdvanceDeduction d "
+         + "WHERE d.employee.employeeId = :employeeId AND d.status = :status")
+    java.math.BigDecimal sumDeductionAmountByEmployeeIdAndStatus(
+            @Param("employeeId") String employeeId,
+            @Param("status") SalaryAdvanceDeductionStatus status);
+
+    @Query("SELECT d FROM SalaryAdvanceDeduction d "
+         + "WHERE d.employee.employeeId = :employeeId AND d.status = :status "
+         + "ORDER BY d.scheduledPayPeriod ASC")
+    java.util.List<SalaryAdvanceDeduction> findByEmployeeIdAndStatusOrderByScheduledPayPeriodAsc(
+            @Param("employeeId") String employeeId,
+            @Param("status") SalaryAdvanceDeductionStatus status);
 }

@@ -54,7 +54,8 @@ public class DatabaseUserDetailsService implements UserDetailsService {
                         .map(r -> (org.springframework.security.core.GrantedAuthority)
                                 new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_" + r))
                         .toList(),
-                authorityCode
+                authorityCode,
+                account.getEmployeeId()
         );
     }
 

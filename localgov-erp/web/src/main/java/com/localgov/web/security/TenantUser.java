@@ -15,6 +15,7 @@ import java.util.Collection;
 public class TenantUser extends User implements TenantUserDetails {
 
     private final String authorityCode;
+    private final String employeeId;
 
     public TenantUser(String username,
                       String password,
@@ -23,14 +24,21 @@ public class TenantUser extends User implements TenantUserDetails {
                       boolean credentialsNonExpired,
                       boolean accountNonLocked,
                       Collection<? extends GrantedAuthority> authorities,
-                      String authorityCode) {
+                      String authorityCode,
+                      String employeeId) {
         super(username, password, enabled, accountNonExpired,
               credentialsNonExpired, accountNonLocked, authorities);
         this.authorityCode = authorityCode;
+        this.employeeId = employeeId;
     }
 
     @Override
     public String getAuthorityCode() {
         return authorityCode;
+    }
+
+    @Override
+    public String getEmployeeId() {
+        return employeeId;
     }
 }

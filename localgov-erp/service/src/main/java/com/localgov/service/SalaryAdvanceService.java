@@ -21,6 +21,7 @@ import com.localgov.service.dto.SalaryAdvancePendingDeductionItemResponse;
 import com.localgov.service.dto.SalaryAdvancePendingDeductionReportResponse;
 import com.localgov.service.dto.SalaryAdvanceRequestCreateRequest;
 import com.localgov.service.dto.SalaryAdvanceRoDecisionRequest;
+import com.localgov.service.dto.SalaryAdvanceStatusResponse;
 import com.localgov.service.dto.SalaryAdvanceRequestResponse;
 import com.localgov.service.dto.SalaryAdvanceTrackingEventResponse;
 import com.localgov.service.dto.SalaryAdvanceTrackingResponse;
@@ -377,6 +378,122 @@ public class SalaryAdvanceService {
                 .orElseThrow(() -> new ResourceNotFoundException("Salary advance request not found with id: " + requestId));
     }
 
+    /**
+     * Current monthly gross (basic + recurring allowances) for an employee.
+     * Shared between submit-time eligibility gating and self-service status.
+     *
+     * Keyed on employees.authority_code (e.g. "CHILANGA"), NOT the request
+     * authority_ref (e.g. "ZM-09-CHL"). Payroll calculators operate on the
+     * tenant code, not the MOFNP reference.
+     */
+    private BigDecimal computeMonthlyGross(Employee employee) {
+        LocalDate now = LocalDate.now();
+        LocalDate monthStart = now.withDayOfMonth(1);
+        LocalDate monthEnd = now.withDayOfMonth(now.lengthOfMonth());
+        String authorityCode = employee.getAuthorityCode();
+
+        ResolvedSalary resolvedSalary = salaryResolver.resolve(
+            employee.getEmployeeId(), authorityCode, monthStart, monthEnd);
+        List<AllowanceLine> monthlyAllowances = allowanceCalculator.compute(
+            employee.getEmployeeId(), authorityCode, resolvedSalary, monthStart);
+
+        return resolvedSalary.proratedBasic()
+            .add(monthlyAllowances.stream()
+                .map(AllowanceLine::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add))
+            .setScale(MONEY_SCALE, MONEY_ROUNDING);
+    }
+
+    /**
+     * Self-service status: can the authenticated employee apply right now,
+     * and if not, why? Also surfaces outstanding balance per Form XIV.
+     *
+     * employeeId must be the authenticated user own employee_id; scoping
+     * comes from the auth principal, not from a path parameter.
+     */
+    @Transactional(readOnly = true)
+    public SalaryAdvanceStatusResponse getMyStatus(String employeeId, String authorityCode) {
+        Employee employee = employeeService.getEmployeeEntity(employeeId);
+
+        SalaryAdvancePolicy policy = salaryAdvancePolicyRepository
+                .findFirstByIsActiveTrueOrderByVersionNoDesc()
+                .orElseThrow(() -> new BusinessValidationException(
+                        "No active salary advance policy configured"));
+
+        BigDecimal monthlyGross = computeMonthlyGross(employee);
+        BigDecimal maximumAdvance = monthlyGross
+                .multiply(policy.getMaxAdvancePercent())
+                .divide(BigDecimal.valueOf(100), MONEY_SCALE, MONEY_ROUNDING);
+
+        long serviceMonths = ChronoUnit.MONTHS.between(employee.getHireDate(), LocalDate.now());
+
+        List<SalaryAdvanceRequestStatus> activeStatuses = List.of(
+                SalaryAdvanceRequestStatus.SUBMITTED,
+                SalaryAdvanceRequestStatus.PENDING_RO_APPROVAL,
+                SalaryAdvanceRequestStatus.APPROVED_FOR_DISBURSEMENT,
+                SalaryAdvanceRequestStatus.DISBURSED);
+
+        List<SalaryAdvanceRequest> activeRequests = salaryAdvanceRequestRepository
+                .findByEmployeeIdAndStatusInOrderByCreatedAtDesc(employeeId, activeStatuses);
+
+        SalaryAdvanceRequest activeRequest = activeRequests.isEmpty() ? null : activeRequests.get(0);
+
+        Long currentRequestId = null;
+        String currentRequestStatus = null;
+        BigDecimal currentRequestedAmount = null;
+        BigDecimal outstandingBalance = null;
+        Integer installmentsRemaining = null;
+        LocalDate nextDueDate = null;
+
+        if (activeRequest != null) {
+            currentRequestId = activeRequest.getId();
+            currentRequestStatus = activeRequest.getStatus().name();
+            currentRequestedAmount = activeRequest.getRequestedAmount();
+
+            List<SalaryAdvanceDeduction> pendingDeductions = salaryAdvanceDeductionRepository
+                    .findByEmployeeIdAndStatusOrderByScheduledPayPeriodAsc(
+                            employeeId, SalaryAdvanceDeductionStatus.PENDING);
+
+            if (!pendingDeductions.isEmpty()) {
+                outstandingBalance = pendingDeductions.stream()
+                        .map(SalaryAdvanceDeduction::getDeductionAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add)
+                        .setScale(MONEY_SCALE, MONEY_ROUNDING);
+                installmentsRemaining = pendingDeductions.size();
+                nextDueDate = pendingDeductions.get(0).getScheduledPayPeriod();
+            }
+        }
+
+        boolean hasOutstanding = activeRequest != null;
+        boolean meetsService = serviceMonths >= policy.getMinimumServiceMonths();
+        boolean eligible = !hasOutstanding && meetsService;
+
+        String reason = null;
+        if (hasOutstanding) {
+            reason = "You have an outstanding advance";
+        } else if (!meetsService) {
+            reason = "Minimum service months not met (" + policy.getMinimumServiceMonths() + " required)";
+        }
+
+        int effectiveMaxInstallments = Math.min(6, policy.getMaxInstallments());
+
+        return new SalaryAdvanceStatusResponse(
+                eligible,
+                reason,
+                monthlyGross,
+                maximumAdvance,
+                policy.getMinimumServiceMonths(),
+                serviceMonths,
+                effectiveMaxInstallments,
+                currentRequestId,
+                currentRequestStatus,
+                currentRequestedAmount,
+                outstandingBalance,
+                installmentsRemaining,
+                nextDueDate
+        );
+    }
+
     private void runEligibilityGate(SalaryAdvanceRequest request) {
         SalaryAdvancePolicy policy = salaryAdvancePolicyRepository.findFirstByIsActiveTrueOrderByVersionNoDesc()
                 .orElseThrow(() -> new BusinessValidationException("No active salary advance policy configured"));
@@ -385,23 +502,7 @@ public class SalaryAdvanceService {
 
         // Snapshot monthly gross (basic + recurring allowances) at apply time
         LocalDate now = LocalDate.now();
-        LocalDate monthStart = now.withDayOfMonth(1);
-        LocalDate monthEnd = now.withDayOfMonth(now.lengthOfMonth());
-
-        // SalaryResolver / AllowanceCalculator key on employees.authority_code
-        // (e.g. "CHILANGA"), NOT the request authority_ref (e.g. "ZM-09-CHL").
-        String authorityCode = employee.getAuthorityCode();
-
-        ResolvedSalary resolvedSalary = salaryResolver.resolve(
-            employee.getEmployeeId(), authorityCode, monthStart, monthEnd);
-        List<AllowanceLine> monthlyAllowances = allowanceCalculator.compute(
-            employee.getEmployeeId(), authorityCode, resolvedSalary, monthStart);
-
-        BigDecimal monthlyGross = resolvedSalary.proratedBasic()
-            .add(monthlyAllowances.stream()
-                .map(AllowanceLine::amount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add));
-        monthlyGross = monthlyGross.setScale(MONEY_SCALE, MONEY_ROUNDING);
+        BigDecimal monthlyGross = computeMonthlyGross(employee);
         request.setMonthlyGrossSnapshot(monthlyGross);
 
         boolean hasRunningAdvance = salaryAdvanceDeductionRepository.existsByEmployee_IdAndStatus(

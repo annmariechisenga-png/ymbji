@@ -211,4 +211,34 @@ class SalaryAdvanceWorkflowEndToEndTest {
             "WHERE salary_advance_request_id = ? AND status = 'APPLIED'", String.class, requestId);
         assertThat(appliedMonth).startsWith("2026-11");
     }
+
+    @Test
+    @DisplayName("getMyStatus after disburse: reports outstanding advance and full balance")
+    void myStatus_afterDisburse_reportsOutstanding() {
+        // Submit + approve + disburse
+        SalaryAdvanceRequestCreateRequest submitReq = new SalaryAdvanceRequestCreateRequest(
+            EMP, AUTHORITY_REF, new BigDecimal("3000.00"), 3,
+            "Status test advance", "E2E");
+        var submitted = salaryAdvanceService.submitRequest(submitReq);
+        salaryAdvanceService.roDecision(submitted.id(),
+            new SalaryAdvanceRoDecisionRequest("RO", SalaryAdvanceDecision.APPROVED, null));
+        salaryAdvanceService.disburse(submitted.id(),
+            new SalaryAdvanceDisbursementRequest(
+                SalaryAdvanceDisburserTitle.DIRECTOR_OF_FINANCE, "CFO", "REF-STATUS"));
+
+        var status = salaryAdvanceService.getMyStatus(EMP, AUTHORITY_CODE);
+
+        assertThat(status.eligibleForNewAdvance()).isFalse();
+        assertThat(status.ineligibilityReason()).contains("outstanding");
+        assertThat(status.currentRequestId()).isNotNull();
+        assertThat(status.currentRequestStatus()).isEqualTo("DISBURSED");
+        assertThat(status.currentOutstandingBalance()).isEqualByComparingTo("3000.00");
+        assertThat(status.currentInstallmentsRemaining()).isEqualTo(3);
+        assertThat(status.currentNextDueDate()).isNotNull();
+        assertThat(status.monthlyGross()).isGreaterThan(BigDecimal.ZERO);
+        assertThat(status.maximumAdvanceAmount()).isGreaterThan(BigDecimal.ZERO);
+        assertThat(status.minimumServiceMonths()).isNotNull();
+        assertThat(status.serviceMonths()).isGreaterThan(0L);
+        assertThat(status.maxInstallments()).isEqualTo(6);
+    }
 }

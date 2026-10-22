@@ -10,4 +10,11 @@ package com.localgov.web.security;
  */
 public interface TenantUserDetails {
     String getAuthorityCode();
+
+    /**
+     * The employee_id of the linked employees.employee_id row, or null
+     * if this account is not tied to an employee (e.g. a system admin).
+     * Self-service endpoints use this to scope the query to the caller.
+     */
+    String getEmployeeId();
 }

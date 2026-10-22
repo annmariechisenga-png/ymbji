@@ -3,6 +3,8 @@ package com.localgov.web.controller;
 import com.localgov.service.SalaryAdvanceService;
 import com.localgov.service.dto.SalaryAdvanceDisbursementRequest;
 import com.localgov.service.dto.SalaryAdvanceRoDecisionRequest;
+import com.localgov.service.dto.SalaryAdvanceStatusResponse;
+import com.localgov.web.security.TenantUserDetails;
 import com.localgov.service.dto.SalaryAdvancePendingDeductionReportResponse;
 import com.localgov.service.dto.SalaryAdvanceRequestCreateRequest;
 import com.localgov.service.dto.SalaryAdvanceRequestResponse;
@@ -18,6 +20,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -115,4 +118,25 @@ public class SalaryAdvanceController {
     ) {
         return salaryAdvanceService.getPendingDeductionsReport(payPeriod, employeeId, status);
     }
+
+    /**
+     * Self-service status: can the authenticated employee apply right now?
+     * Returns outstanding balance, current eligibility, and reason if not.
+     * Scoping comes from the authenticated principal, not a path parameter.
+     */
+    @GetMapping("/me/status")
+    public SalaryAdvanceStatusResponse myStatus(Authentication authentication) {
+        Object principal = authentication.getPrincipal();
+        if (!(principal instanceof TenantUserDetails user)) {
+            throw new IllegalStateException(
+                "Authenticated principal is not a TenantUser - auth misconfigured");
+        }
+        if (user.getEmployeeId() == null || user.getEmployeeId().isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.NOT_FOUND,
+                "Authenticated user has no linked employee record");
+        }
+        return salaryAdvanceService.getMyStatus(user.getEmployeeId(), user.getAuthorityCode());
+    }
+
 }
