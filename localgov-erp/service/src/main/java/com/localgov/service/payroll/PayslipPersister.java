@@ -74,7 +74,8 @@ public class PayslipPersister {
             java.time.LocalDate periodStart,
             java.time.LocalDate periodEnd,
             BigDecimal overtimeAmount,
-            BigDecimal salaryAdvanceAmount) {
+            BigDecimal salaryAdvanceAmount,
+            BigDecimal backPayAmount) {
 
         BigDecimal allowancesTotal = allowances.stream()
             .map(AllowanceLine::amount)
@@ -113,6 +114,11 @@ public class PayslipPersister {
                 "Overtime", normalize(overtimeAmount), 30, "OVERTIME_HOURLY_RATE");
         }
 
+        if (backPayAmount != null && backPayAmount.signum() > 0) {
+            insertLine(runItemId, authorityCode, "BACK_PAY", "EARNING",
+                "Back Pay (Arrears)", normalize(backPayAmount), 130, null);
+        }
+
         insertLine(runItemId, authorityCode, "PAYE", "DEDUCTION",
             "PAYE (Income Tax)", statutory.paye(), 10, "PAYE_BANDS");
         insertLine(runItemId, authorityCode,
@@ -146,7 +152,7 @@ public class PayslipPersister {
         PayslipData payslipData = buildPayslipData(
             authorityCode, runCode, employeeId, employeeName,
             salary, allowances, statutory, gross, totalDeductions, netPay,
-            periodStart, periodEnd, overtimeAmount, salaryAdvanceAmount);
+            periodStart, periodEnd, overtimeAmount, salaryAdvanceAmount, backPayAmount);
 
         byte[] pdfBytes = renderer.render(payslipData);
         String pdfObjectKey = authorityCode + "/" + runCode + "/" + employeeId + ".pdf";
@@ -226,7 +232,8 @@ public class PayslipPersister {
             java.time.LocalDate periodStart,
             java.time.LocalDate periodEnd,
             BigDecimal overtimeAmount,
-            BigDecimal salaryAdvanceAmount) {
+            BigDecimal salaryAdvanceAmount,
+            BigDecimal backPayAmount) {
 
         // Authorities row: name, address, logo key, registration numbers.
         Map<String, Object> authRow;
@@ -265,6 +272,10 @@ public class PayslipPersister {
         if (overtimeAmount != null && overtimeAmount.signum() > 0) {
             earnings.add(new PayslipData.Line(
                 "OVERTIME", "Overtime", normalize(overtimeAmount)));
+        }
+        if (backPayAmount != null && backPayAmount.signum() > 0) {
+            earnings.add(new PayslipData.Line(
+                "BACK_PAY", "Back Pay (Arrears)", normalize(backPayAmount)));
         }
 
         boolean isNapsa = "NAPSA".equals(statutory.contributionScheme());

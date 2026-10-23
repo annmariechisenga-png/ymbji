@@ -1,5 +1,9 @@
 package com.localgov.service.payroll;
 
+import com.localgov.domain.model.PayrollAdjustment;
+import com.localgov.domain.model.PayrollAdjustmentDirection;
+import com.localgov.domain.model.PayrollAdjustmentStatus;
+import com.localgov.repository.PayrollAdjustmentRepository;
 import com.localgov.service.payroll.exception.PayrollEngineException;
 import com.localgov.service.payroll.model.AllowanceLine;
 import com.localgov.service.payroll.model.PayrollRunResult;
@@ -58,6 +62,7 @@ public class PayrollEngineService {
     private final PayslipPersister payslipPersister;
     private final com.localgov.service.OvertimeService overtimeService;
     private final SalaryAdvanceSourcer salaryAdvanceSourcer;
+    private final PayrollAdjustmentRepository payrollAdjustmentRepository;
 
     public PayrollEngineService(JdbcTemplate jdbcTemplate,
                                 SalaryResolver salaryResolver,
@@ -65,7 +70,8 @@ public class PayrollEngineService {
                                 StatutoryCalculator statutoryCalculator,
                                 PayslipPersister payslipPersister,
                                 com.localgov.service.OvertimeService overtimeService,
-                                SalaryAdvanceSourcer salaryAdvanceSourcer) {
+                                SalaryAdvanceSourcer salaryAdvanceSourcer,
+                                PayrollAdjustmentRepository payrollAdjustmentRepository) {
         this.jdbcTemplate = jdbcTemplate;
         this.salaryResolver = salaryResolver;
         this.allowanceCalculator = allowanceCalculator;
@@ -73,6 +79,7 @@ public class PayrollEngineService {
         this.payslipPersister = payslipPersister;
         this.overtimeService = overtimeService;
         this.salaryAdvanceSourcer = salaryAdvanceSourcer;
+        this.payrollAdjustmentRepository = payrollAdjustmentRepository;
     }
 
     /**
@@ -179,6 +186,12 @@ public class PayrollEngineService {
             salaryAdvanceSourcer.sourceForRun(periodEnd);
         List<Long> allSalaryAdvanceIds = new ArrayList<>();
 
+        // Source pending payroll adjustments (back-pay, arrears)
+        // Each adjustment will be picked up, emitted as BACK_PAY line,
+        // and marked APPLIED after the run completes.
+        List<com.localgov.domain.model.PayrollAdjustment> pendingAdjustments =
+            new ArrayList<>();
+
         for (Map<String, Object> emp : employees) {
             String employeeId = (String) emp.get("employee_id");
             String employeeName = (String) emp.get("full_name");
@@ -206,14 +219,23 @@ public class PayrollEngineService {
                 BigDecimal overtimeAmount = otAggregate != null
                     ? otAggregate.totalAmount() : BigDecimal.ZERO;
 
-                // Taxable non-basic = allowances + overtime (both taxable)
-                BigDecimal taxableNonBasic = grossAllowances.add(overtimeAmount);
+                // 5c.5 Back-pay: sum pending EARNING adjustments for this employee
+                java.util.List<com.localgov.domain.model.PayrollAdjustment> empAdjustments =
+                    payrollAdjustmentRepository.findByEmployeeIdAndStatus(
+                        employeeId, com.localgov.domain.model.PayrollAdjustmentStatus.PENDING);
+                BigDecimal backPayAmount = empAdjustments.stream()
+                    .filter(a -> a.getDirection() == com.localgov.domain.model.PayrollAdjustmentDirection.EARNING)
+                    .map(com.localgov.domain.model.PayrollAdjustment::getAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-                // 5d. Compute statutory on the full taxable base
+                // Taxable non-basic = allowances + overtime + back-pay (all taxable)
+                BigDecimal taxableNonBasic = grossAllowances.add(overtimeAmount).add(backPayAmount);
+
+                // 5d. Compute statutory on the full taxable base (arrears included → PAYE/NAPSA/NHIMA correct)
                 StatutoryDeductions statutory = statutoryCalculator.compute(
                     employeeId, authorityCode, salary, periodStart, periodYear, taxableNonBasic);
 
-                // 5e. Gross including overtime
+                // 5e. Gross including overtime + back-pay
                 BigDecimal gross = salary.proratedBasic().add(taxableNonBasic);
 
                 // 5f. Total deductions
@@ -234,7 +256,10 @@ public class PayrollEngineService {
                 PayslipPersister.PendingPayslip pp = payslipPersister.persistItemAndLines(
                     runId, authorityCode, runCode, employeeId, employeeName,
                     salary, allowances, statutory, gross, totalDeductions, netPay,
-                    periodStart, periodEnd, overtimeAmount, salaryAdvanceAmount);
+                    periodStart, periodEnd, overtimeAmount, salaryAdvanceAmount, backPayAmount);
+
+                // Track this employee's pending adjustments for post-run marking
+                pendingAdjustments.addAll(empAdjustments);
 
                 if (otAggregate != null) {
                     allSessionIds.addAll(otAggregate.sessionIds());
@@ -261,6 +286,17 @@ public class PayrollEngineService {
         //       anything after this throws, the paid flag rolls back.
         overtimeService.markPayrollPaid(allSessionIds);
         salaryAdvanceSourcer.markApplied(allSalaryAdvanceIds);
+
+        // Mark back-pay adjustments APPLIED (same transaction)
+        if (!pendingAdjustments.isEmpty()) {
+            java.time.LocalDateTime now = java.time.LocalDateTime.now();
+            for (com.localgov.domain.model.PayrollAdjustment adj : pendingAdjustments) {
+                adj.setStatus(com.localgov.domain.model.PayrollAdjustmentStatus.APPLIED);
+                adj.setAppliedRunId(runId);
+                adj.setAppliedAt(now);
+            }
+            payrollAdjustmentRepository.saveAll(pendingAdjustments);
+        }
 
         // 7. Update run header totals + status + run_hash
         jdbcTemplate.update(
