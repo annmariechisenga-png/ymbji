@@ -65,6 +65,14 @@ public class PayrollAdjustment {
     @Column(name = "applied_at")
     private LocalDateTime appliedAt;
 
+    /**
+     * FK to retroactive_salary_event. Set by RetroactivePayrollCalculator
+     * (V138.2) when this adjustment was produced by a bulk arrears event.
+     * NULL for manually entered adjustments.
+     */
+    @Column(name = "retroactive_event_id")
+    private Long retroactiveEventId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private PayrollAdjustmentStatus status = PayrollAdjustmentStatus.PENDING;
@@ -113,6 +121,9 @@ public class PayrollAdjustment {
 
     public Long getAppliedRunId() { return appliedRunId; }
     public void setAppliedRunId(Long appliedRunId) { this.appliedRunId = appliedRunId; }
+
+    public Long getRetroactiveEventId() { return retroactiveEventId; }
+    public void setRetroactiveEventId(Long retroactiveEventId) { this.retroactiveEventId = retroactiveEventId; }
 
     public LocalDateTime getAppliedAt() { return appliedAt; }
     public void setAppliedAt(LocalDateTime appliedAt) { this.appliedAt = appliedAt; }

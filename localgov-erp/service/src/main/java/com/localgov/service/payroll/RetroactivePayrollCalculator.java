@@ -161,6 +161,7 @@ public class RetroactivePayrollCalculator {
                     adj.setPeriodFrom(effectiveFrom);
                     adj.setPeriodTo(rangeEnd);
                     adj.setStatus(com.localgov.domain.model.PayrollAdjustmentStatus.PENDING);
+                    adj.setRetroactiveEventId(event.getId());   // V139: event-scoped lookup
                     adj.setCreatedBy("RETRO_CALCULATOR");
                     toCreate.add(adj);
 

@@ -38,4 +38,16 @@ public interface PayrollAdjustmentRepository extends JpaRepository<PayrollAdjust
     BigDecimal sumPendingDeductionByEmployeeId(
             @Param("employeeId") String employeeId,
             @Param("status") PayrollAdjustmentStatus status);
+
+    /**
+     * All adjustments produced by a specific retroactive_salary_event.
+     * Used by V138.3's detail endpoint to enumerate the per-employee
+     * arrears this event generated.
+     *
+     * <p>Scoped by authority_code so even a misconfigured RLS fails
+     * closed here — the controller additionally checks the event
+     * belongs to the caller's tenant.
+     */
+    List<PayrollAdjustment> findByRetroactiveEventIdAndAuthorityCodeOrderByEmployeeIdAsc(
+            Long retroactiveEventId, String authorityCode);
 }
