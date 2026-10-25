@@ -70,14 +70,35 @@ public class AllowanceCalculator {
         BigDecimal basic = salary.proratedBasic();
 
         // Load all payroll allowances applicable to this employee's unit
+        // AS OF the payroll period start (V140: effective-dated).
+        //
+        // DISTINCT ON (allowance_code) picks the single most-recent version
+        // of each allowance that was effective on periodStart. So a 2024
+        // period returns TRANSPORT 15%, a 2025 period returns 17%, even
+        // though all three versions coexist in the table.
         List<Map<String, Object>> allowances = jdbcTemplate.queryForList(
-            "SELECT allowance_code, allowance_name, calculation_method, " +
+            "SELECT DISTINCT ON (allowance_code) " +
+            "       allowance_code, allowance_name, calculation_method, " +
             "       default_rate, eligibility_rule_code " +
             "FROM erp_allowance_type " +
             "WHERE applies_to_payroll = TRUE AND is_active = TRUE " +
             "  AND (bargaining_unit_scope IS NULL OR bargaining_unit_scope = ?) " +
-            "ORDER BY allowance_code",
-            emp.bargainingUnit);
+            "  AND effective_from <= ? " +
+            "  AND (effective_to IS NULL OR effective_to >= ?) " +
+            "ORDER BY allowance_code, effective_from DESC",
+            emp.bargainingUnit, periodStart, periodStart);
+
+        // Fail loudly if no allowance version is effective for this period.
+        // This almost always means historical erp_allowance_type rows
+        // haven't been seeded for the year being calculated — the operator
+        // gets an actionable message instead of a silent zero-allowance payslip.
+        if (allowances.isEmpty()) {
+            throw new PayrollEngineException(
+                "No allowance rates are effective for period " + periodStart +
+                " (bargaining_unit_scope = " + emp.bargainingUnit + "). " +
+                "Verify erp_allowance_type has been seeded for this year " +
+                "with effective_from <= " + periodStart);
+        }
 
         List<AllowanceLine> result = new ArrayList<>();
         for (Map<String, Object> row : allowances) {
