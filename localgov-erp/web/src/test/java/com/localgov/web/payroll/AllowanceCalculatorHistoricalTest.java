@@ -137,6 +137,44 @@ class AllowanceCalculatorHistoricalTest {
             .hasMessageContaining("No allowance rates are effective for period");
     }
 
+    @Test
+    @DisplayName("V141: all unionized scales have 7 notches for 2026 (notches 6-7 backfilled)")
+    void unionizedScalesHaveAllSevenNotches() {
+        for (String scale : new String[]{
+                "LGSS08","LGSS09","LGSS10","LGSS11","LGSS12",
+                "LGSS13","LGSS14","LGSS15","LGSS16","LGSS17","LGSS18"}) {
+
+            Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM erp_salary_notch_value " +
+                "WHERE salary_scale = ? AND effective_from = DATE '2026-01-01'",
+                Integer.class, scale);
+
+            assertThat(count)
+                .as("Scale %s must have 7 notches at 2026-01-01 (was 5 before V141)", scale)
+                .isEqualTo(7);
+        }
+
+        // Sanity: notch 7 of LGSS08 must be 10,983 (from 2026 CA Appendix 1)
+        BigDecimal lgss08Notch7 = jdbc.queryForObject(
+            "SELECT monthly_salary FROM erp_salary_notch_value " +
+            "WHERE salary_scale = 'LGSS08' AND notch_no = 7 " +
+            "  AND effective_from = DATE '2026-01-01'",
+            BigDecimal.class);
+        assertThat(lgss08Notch7)
+            .as("LGSS08 notch 7 monthly at 2026")
+            .isEqualByComparingTo("10983.00");
+
+        // And notch 6 of LGSS08 must be 10,744
+        BigDecimal lgss08Notch6 = jdbc.queryForObject(
+            "SELECT monthly_salary FROM erp_salary_notch_value " +
+            "WHERE salary_scale = 'LGSS08' AND notch_no = 6 " +
+            "  AND effective_from = DATE '2026-01-01'",
+            BigDecimal.class);
+        assertThat(lgss08Notch6)
+            .as("LGSS08 notch 6 monthly at 2026")
+            .isEqualByComparingTo("10744.00");
+    }
+
     // ----------------------------------------------------------------
     // Helpers
     // ----------------------------------------------------------------
