@@ -9,6 +9,8 @@ import com.localgov.repository.FederationPayrollEventRepository;
 import com.localgov.repository.PayrollAdjustmentRepository;
 import com.localgov.repository.RetroactiveSalaryEventRepository;
 import com.localgov.service.payroll.model.AllowanceLine;
+import com.localgov.service.payroll.model.PayslipReconstruction;
+import com.localgov.service.payroll.model.StatutoryDeductions;
 import com.localgov.service.payroll.model.ResolvedSalary;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,6 +73,7 @@ public class RetroactivePayrollCalculator {
     private final PayrollAdjustmentRepository adjustmentRepository;
     private final SalaryResolver salaryResolver;
     private final AllowanceCalculator allowanceCalculator;
+    private final StatutoryCalculator statutoryCalculator;
     private final JdbcTemplate jdbcTemplate;
 
     public RetroactivePayrollCalculator(
@@ -79,12 +82,14 @@ public class RetroactivePayrollCalculator {
             PayrollAdjustmentRepository adjustmentRepository,
             SalaryResolver salaryResolver,
             AllowanceCalculator allowanceCalculator,
+            StatutoryCalculator statutoryCalculator,
             JdbcTemplate jdbcTemplate) {
         this.eventRepository = eventRepository;
         this.templateRepository = templateRepository;
         this.adjustmentRepository = adjustmentRepository;
         this.salaryResolver = salaryResolver;
         this.allowanceCalculator = allowanceCalculator;
+        this.statutoryCalculator = statutoryCalculator;
         this.jdbcTemplate = jdbcTemplate;
     }
 
@@ -189,6 +194,90 @@ public class RetroactivePayrollCalculator {
                 eventId, employeeCount, event.getTotalAmount());
 
         return event;
+    }
+
+    /**
+     * Reconstruct the payslip that should have been paid for a historical
+     * period, using the CA rates and statutory rules effective at that
+     * period start.
+     *
+     * <p>Reads from three effective-dated sources:
+     * <ul>
+     *   <li>{@code erp_salary_notch_value} — basic pay (V123 / V142 / V143)</li>
+     *   <li>{@code erp_allowance_type} + {@code compliance_rule} — allowances (V140 / V144)</li>
+     *   <li>{@code compliance_rule} — PAYE bands, NAPSA ceiling, NHIMA (V119 / V145)</li>
+     * </ul>
+     *
+     * <p>Does NOT read {@code erp_payroll_run_item}. This computes what
+     * the payroll engine <em>would</em> have produced for the period,
+     * independent of whether payroll actually ran. For arrears that
+     * compare against actual paid history, use {@link #computeForEvent}.
+     *
+     * <p>If the employee's salary_scale or current_notch has no notch
+     * value effective at the period start, throws PayrollEngineException
+     * (fail-loud — the reconstruction cannot proceed without basic).
+     *
+     * @param employeeId      the employee
+     * @param authorityCode   tenant (council) identifier
+     * @param periodStart     first day of the period
+     * @param periodEnd       last day of the period
+     * @return the reconstructed payslip (basic, allowances, gross,
+     *         statutory deductions, net)
+     */
+    @Transactional(readOnly = true)
+    public PayslipReconstruction reconstructPayslip(
+            String employeeId,
+            String authorityCode,
+            java.time.LocalDate periodStart,
+            java.time.LocalDate periodEnd) {
+
+        // 1. Resolve basic salary for the period (uses effective-dated notch table)
+        com.localgov.service.payroll.model.ResolvedSalary salary =
+                salaryResolver.resolve(employeeId, authorityCode, periodStart, periodEnd);
+
+        // 2. Compute allowances for the period (uses effective-dated rates + rules)
+        java.util.List<AllowanceLine> allowances =
+                allowanceCalculator.compute(employeeId, authorityCode, salary, periodStart);
+
+        java.math.BigDecimal totalAllowances = allowances.stream()
+                .map(AllowanceLine::amount)
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+
+        // 3. Compute statutory deductions (PAYE bands, NAPSA ceiling, NHIMA, funeral)
+        int periodYear = periodStart.getYear();
+        StatutoryDeductions statutory = statutoryCalculator.compute(
+                employeeId, authorityCode, salary, periodStart, periodYear, totalAllowances);
+
+        // 4. Assemble PayslipReconstruction
+        java.math.BigDecimal basic = salary.proratedBasic();
+        java.math.BigDecimal gross = basic.add(totalAllowances);
+        java.math.BigDecimal totalDeductions = statutory.totalEmployeeDeductions();
+        java.math.BigDecimal net = gross.subtract(totalDeductions);
+
+        return new PayslipReconstruction(
+                employeeId,
+                authorityCode,
+                salary.salaryScale(),
+                salary.notchNo(),
+                statutory.contributionScheme(),
+                periodStart,
+                periodEnd,
+                salary.daysInMonth(),
+                salary.daysServed(),
+                salary.prorated(),
+                basic,
+                allowances,
+                totalAllowances,
+                gross,
+                statutory.taxableGross(),
+                statutory.paye(),
+                statutory.napsaEmployee(),
+                statutory.lasfEmployee(),
+                statutory.nhimaEmployee(),
+                statutory.grzFuneralEmployee(),
+                totalDeductions,
+                net
+        );
     }
 
     /**

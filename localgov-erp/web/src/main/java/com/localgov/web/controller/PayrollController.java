@@ -4,6 +4,7 @@ import com.localgov.service.PayrollService;
 import com.localgov.service.dto.PayrollCalculationRequest;
 import com.localgov.service.dto.PayrollRecordResponse;
 import com.localgov.service.payroll.PayrollEngineService;
+import com.localgov.service.payroll.RetroactivePayrollCalculator;
 import com.localgov.service.payroll.exception.PayrollEngineException;
 import com.localgov.service.payroll.model.PayrollRunResult;
 import com.localgov.web.dashboard.DashboardIdentityService;
@@ -14,6 +15,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,13 +38,16 @@ public class PayrollController {
     private final PayrollService payrollService;
     private final PayrollEngineService payrollEngineService;
     private final DashboardIdentityService dashboardIdentityService;
+    private final RetroactivePayrollCalculator retroactivePayrollCalculator;
 
     public PayrollController(PayrollService payrollService,
                              PayrollEngineService payrollEngineService,
-                             DashboardIdentityService dashboardIdentityService) {
+                             DashboardIdentityService dashboardIdentityService,
+                             RetroactivePayrollCalculator retroactivePayrollCalculator) {
         this.payrollService = payrollService;
         this.payrollEngineService = payrollEngineService;
         this.dashboardIdentityService = dashboardIdentityService;
+        this.retroactivePayrollCalculator = retroactivePayrollCalculator;
     }
 
     @PostMapping("/calculate")
@@ -93,4 +98,46 @@ public class PayrollController {
     public List<PayrollRecordResponse> getPayrollHistory(@PathVariable String employeeId) {
         return payrollService.getEmployeePayrollHistory(employeeId);
     }
+
+    /**
+     * Reconstruct a historical payslip — "what should have been paid"
+     * for a period using the CA rates effective at that time.
+     *
+     * <p>V140.2 — historical reconstruction endpoint. Use for audit:
+     * compare against a historical payslip to find under/over-payments.
+     *
+     * <p>Does NOT read erp_payroll_run_item (unlike the back-pay calculator).
+     * Returns the absolute payslip the engine would have produced for the
+     * period, from the effective-dated notch, allowance, and statutory
+     * rule tables.
+     */
+    @PostMapping("/payslip-reconstruction")
+    @Operation(summary = "Reconstruct a historical payslip",
+               description = "What should have been paid for the period, based on CA rates effective then")
+    @PreAuthorize("hasAnyRole('ADMIN','PAYROLL','HR','AUDITOR')")
+    public com.localgov.service.payroll.model.PayslipReconstruction reconstructPayslip(
+            @RequestBody PayslipReconstructionRequest request,
+            Authentication authentication) {
+
+        if (!(authentication.getPrincipal() instanceof
+                com.localgov.web.security.TenantUserDetails user)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN,
+                    "Authenticated user has no tenant");
+        }
+
+        return retroactivePayrollCalculator.reconstructPayslip(
+                request.employeeId(),
+                user.getAuthorityCode(),
+                request.periodStart(),
+                request.periodEnd());
+    }
+
+    /** Request body for the payslip reconstruction endpoint. */
+    public record PayslipReconstructionRequest(
+            @jakarta.validation.constraints.NotBlank String employeeId,
+            @jakarta.validation.constraints.NotNull java.time.LocalDate periodStart,
+            @jakarta.validation.constraints.NotNull java.time.LocalDate periodEnd) {
+    }
+
 }

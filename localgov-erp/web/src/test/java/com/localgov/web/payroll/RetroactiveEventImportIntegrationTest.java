@@ -155,7 +155,22 @@ class RetroactiveEventImportIntegrationTest {
             "WHERE is_active = TRUE " +
             "ORDER BY event_code");
 
-        assertThat(templates).hasSize(3);
+        // V146 (2023 historical reconstruction) added 2 more templates:
+        //   CA_2023_ZULAWU, CA_2023_MANAGEMENT
+        // Combined with V138's 3 (2026 templates), total is now 5.
+        assertThat(templates).hasSize(5);
+
+        var codes = templates.stream()
+                .map(t -> (String) t.get("event_code"))
+                .sorted()
+                .toList();
+        assertThat(codes).containsExactly(
+                "CA_2023_MANAGEMENT",
+                "CA_2023_ZULAWU",
+                "CA_2026_FIRESUZ",
+                "CA_2026_MANAGEMENT",
+                "CA_2026_ZULAWAU_NULGAW"
+        );
 
         Map<String, Object> zulawau = findTemplate(templates, "CA_2026_ZULAWAU_NULGAW");
         assertThat(zulawau.get("effective_from").toString()).startsWith("2026-01-01");
