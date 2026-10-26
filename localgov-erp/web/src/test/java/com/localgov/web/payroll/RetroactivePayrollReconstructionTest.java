@@ -151,13 +151,13 @@ class RetroactivePayrollReconstructionTest {
         assertThat(p.salaryScale()).isEqualTo("LGSS03");
         assertThat(p.notchNo()).isEqualTo(4);
         assertThat(p.basic())
-            .as("LGSS03/notch-4 monthly (130,789 / 12 = 10,899.08)")
-            .isEqualByComparingTo(new BigDecimal("10899.08"));
+            .as("LGSS03/notch-4 monthly (144,520 / 12 = 12,043.33, per V143.1)")
+            .isEqualByComparingTo(new BigDecimal("12043.33"));
 
         // --- Allowances (70% composition: HOUSING 20% + EDUCATION 20% + FUEL 30%) ---
-        assertAllowance(p.allowances(), "HOUSING",   new BigDecimal("2179.82"));  // 20%
-        assertAllowance(p.allowances(), "EDUCATION", new BigDecimal("2179.82"));  // 20%
-        assertAllowance(p.allowances(), "FUEL",      new BigDecimal("3269.72"));  // 30%
+        assertAllowance(p.allowances(), "HOUSING",   new BigDecimal("2408.67"));  // 20%
+        assertAllowance(p.allowances(), "EDUCATION", new BigDecimal("2408.67"));  // 20%
+        assertAllowance(p.allowances(), "FUEL",      new BigDecimal("3613.00"));  // 30% × 12,043.33 = 3,612.999 → HALF_UP 3,613.00
 
         // TRANSPORT must NOT be present (LGSS01-03 excluded by MGMT rule)
         assertThat(p.allowances().stream().noneMatch(a -> "TRANSPORT".equals(a.allowanceCode())))
@@ -165,33 +165,33 @@ class RetroactivePayrollReconstructionTest {
             .isTrue();
 
         assertThat(p.totalAllowances())
-            .as("total allowances = 70% × 10,899.08")
-            .isEqualByComparingTo(new BigDecimal("7629.36"));
+            .as("total allowances = 2408.67 + 2408.67 + 3613.00")
+            .isEqualByComparingTo(new BigDecimal("8430.34"));
         assertThat(p.gross())
-            .as("gross = 10,899.08 + 7,629.36")
-            .isEqualByComparingTo(new BigDecimal("18528.44"));
+            .as("gross = 12,043.33 + 8,430.34")
+            .isEqualByComparingTo(new BigDecimal("20473.67"));
 
         // --- Statutory ---
         assertThat(p.napsaEmployee())
-            .as("NAPSA 5% × 18,528.44 (below 2023 ceiling K26,840)")
-            .isEqualByComparingTo(new BigDecimal("926.42"));
+            .as("NAPSA 5% × 20,473.66 (below 2023 ceiling K26,840)")
+            .isEqualByComparingTo(new BigDecimal("1023.68"));
         assertThat(p.nhimaEmployee())
-            .as("NHIMA 1% × 10,899.08")
-            .isEqualByComparingTo(new BigDecimal("108.99"));
+            .as("NHIMA 1% × 12,043.33")
+            .isEqualByComparingTo(new BigDecimal("120.43"));
 
-        // PAYE 2023 on taxable = 18,528.44 - 926.42 = 17,602.02
-        // 0% × 4,800 (0) + 20% × 2,000 (400) + 30% × 2,100 (630) + 37.5% × 8,702.02 (3,263.26)
-        // = K4,293.26
+        // PAYE 2023 on taxable = 20,473.67 - 1,023.68 = 19,449.99
+        // 0% × 4,800 (0) + 20% × 2,000 (400) + 30% × 2,100 (630) + 37.5% × 10,549.99 (3,956.25)
+        // = K4,986.25
         assertThat(p.taxableGross())
-            .isEqualByComparingTo(new BigDecimal("17602.02"));
+            .isEqualByComparingTo(new BigDecimal("19449.99"));
         assertThat(p.paye())
-            .as("PAYE on 17,602.02 at 2023 bands")
-            .isEqualByComparingTo(new BigDecimal("4293.26"));
+            .as("PAYE on 19,449.99 at 2023 bands")
+            .isEqualByComparingTo(new BigDecimal("4986.25"));
 
         // --- Net ---
         assertThat(p.net())
-            .as("net = 18,528.44 - (926.42 + 4,293.26 + 108.99 + 43.60)")
-            .isEqualByComparingTo(new BigDecimal("13156.17"));
+            .as("net = 20,473.67 - (1,023.68 + 4,986.25 + 120.43 + 48.17) = 20,473.67 - 6,178.53")
+            .isEqualByComparingTo(new BigDecimal("14295.14"));
     }
 
     // =================================================================
