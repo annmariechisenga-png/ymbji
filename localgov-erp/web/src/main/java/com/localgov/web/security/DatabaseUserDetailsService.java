@@ -42,6 +42,22 @@ public class DatabaseUserDetailsService implements UserDetailsService {
         }
 
         String authorityCode = resolveAuthorityCode(account);
+        boolean superadmin = Boolean.TRUE.equals(account.getSuperadmin());
+
+        // Build authority list. Roles come from roles_csv (already ROLE_ prefixed).
+        // If the account is a superadmin, inject ROLE_SUPERADMIN unless it's
+        // already in roles_csv. This lets endpoints use @PreAuthorize("hasRole('SUPERADMIN')")
+        // and gives defence-in-depth: both the DB flag AND the role must be
+        // satisfied for a caller to pass the check.
+        java.util.List<org.springframework.security.core.GrantedAuthority> authorities =
+                new java.util.ArrayList<>();
+        for (String role : roles) {
+            authorities.add(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_" + role));
+        }
+        if (superadmin && authorities.stream()
+                .noneMatch(a -> "ROLE_SUPERADMIN".equals(a.getAuthority()))) {
+            authorities.add(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_SUPERADMIN"));
+        }
 
         return new TenantUser(
                 account.getUsername(),
@@ -50,12 +66,10 @@ public class DatabaseUserDetailsService implements UserDetailsService {
                 true,  // accountNonExpired
                 true,  // credentialsNonExpired
                 true,  // accountNonLocked
-                roles.stream()
-                        .map(r -> (org.springframework.security.core.GrantedAuthority)
-                                new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_" + r))
-                        .toList(),
+                authorities,
                 authorityCode,
-                account.getEmployeeId()
+                account.getEmployeeId(),
+                superadmin
         );
     }
 

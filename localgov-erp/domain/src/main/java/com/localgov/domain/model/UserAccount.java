@@ -49,6 +49,9 @@ public class UserAccount {
     @Column(name = "is_active", nullable = false)
     private Boolean active;
 
+    @Column(name = "is_superadmin", nullable = false)
+    private Boolean superadmin = false;
+
     @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt;
 
@@ -184,6 +187,14 @@ public class UserAccount {
 
     public void setActive(Boolean active) {
         this.active = active;
+    }
+
+    public Boolean getSuperadmin() {
+        return superadmin;
+    }
+
+    public void setSuperadmin(Boolean superadmin) {
+        this.superadmin = superadmin;
     }
 
     public LocalDateTime getLastLoginAt() {

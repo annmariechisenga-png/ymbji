@@ -17,4 +17,15 @@ public interface TenantUserDetails {
      * Self-service endpoints use this to scope the query to the caller.
      */
     String getEmployeeId();
+
+    /**
+     * TRUE if this user is a federation superadmin (PLATFORM tenant +
+     * is_superadmin flag). Superadmins can access federation-write
+     * endpoints (@PreAuthorize("hasRole('SUPERADMIN')")).
+     *
+     * Defaults to false so existing principals continue to compile.
+     */
+    default boolean isSuperadmin() {
+        return false;
+    }
 }
