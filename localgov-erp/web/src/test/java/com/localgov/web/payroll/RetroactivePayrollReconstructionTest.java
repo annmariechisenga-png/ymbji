@@ -71,6 +71,8 @@ class RetroactivePayrollReconstructionTest {
 
     private static final String CHILANGA = "ZM-09-01";
     private static final LocalDate PERIOD_START = LocalDate.of(2023, 6, 1);
+    private static final LocalDate PERIOD_2024_START = LocalDate.of(2024, 6, 1);
+    private static final LocalDate PERIOD_2024_END = LocalDate.of(2024, 6, 30);
     private static final LocalDate PERIOD_END = LocalDate.of(2023, 6, 30);
 
     @BeforeEach
@@ -192,6 +194,138 @@ class RetroactivePayrollReconstructionTest {
         assertThat(p.net())
             .as("net = 20,473.67 - (1,023.68 + 4,986.25 + 120.43 + 48.17) = 20,473.67 - 6,178.53")
             .isEqualByComparingTo(new BigDecimal("14295.14"));
+    }
+
+    // =================================================================
+    // Test 3 — Unionized LGSS10/notch-3 at 2024-06
+    // =================================================================
+
+    @Test
+    @DisplayName("Reconstruct 2024 unionized LGSS10/notch-3 payslip (TRANSPORT 15%, top PAYE 37%)")
+    void reconstructUnionized2024() {
+        seedEmployee("EMP-RECON-2024-U", "LGSS10", 3, "UNIONIZED_ZULAWU", "ZULAWU");
+
+        PayslipReconstruction p = calculator.reconstructPayslip(
+                "EMP-RECON-2024-U", CHILANGA, PERIOD_2024_START, PERIOD_2024_END);
+
+        // Basic from V147 (2024 unionized): 84,552 + 2 × 2,686 = 89,924 annual
+        assertThat(p.basic())
+            .as("LGSS10/notch-3 monthly (2024 CA)")
+            .isEqualByComparingTo(new BigDecimal("7493.67"));
+
+        // TRANSPORT 15% (2024 CA §2.1)
+        assertAllowance(p.allowances(), "HOUSING",   new BigDecimal("1498.73"));
+        assertAllowance(p.allowances(), "TRANSPORT", new BigDecimal("1124.05"));
+        assertAllowance(p.allowances(), "EDUCATION", new BigDecimal("1498.73"));
+
+        assertThat(p.totalAllowances()).isEqualByComparingTo(new BigDecimal("4121.51"));
+        assertThat(p.gross()).isEqualByComparingTo(new BigDecimal("11615.18"));
+        assertThat(p.napsaEmployee()).isEqualByComparingTo(new BigDecimal("580.76"));
+        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("11034.42"));
+
+        // PAYE 2024 on 11,034.42: 0 + 400 + 630 + 37% × 1,834.42
+        assertThat(p.paye())
+            .as("PAYE on 11,034.42 at 2024 bands (top 37%)")
+            .isEqualByComparingTo(new BigDecimal("1708.74"));
+
+        assertThat(p.net())
+            .as("net = 11,615.18 - (580.76 + 1,708.74 + 74.94 + 29.97)")
+            .isEqualByComparingTo(new BigDecimal("9220.77"));
+    }
+
+    // =================================================================
+    // Test 4 — Management LGSS03/notch-4 at 2024-06
+    // =================================================================
+
+    @Test
+    @DisplayName("Reconstruct 2024 management LGSS03/notch-4 payslip (FUEL 30% not TRANSPORT)")
+    void reconstructManagement2024() {
+        seedEmployee("EMP-RECON-2024-M", "LGSS03", 4, "MANAGEMENT", null);
+
+        PayslipReconstruction p = calculator.reconstructPayslip(
+                "EMP-RECON-2024-M", CHILANGA, PERIOD_2024_START, PERIOD_2024_END);
+
+        // Basic from V148: 147,654 + 3 × 3,884 = 159,306 annual
+        assertThat(p.basic())
+            .as("LGSS03/notch-4 monthly (2024 revised)")
+            .isEqualByComparingTo(new BigDecimal("13275.50"));
+
+        assertAllowance(p.allowances(), "HOUSING",   new BigDecimal("2655.10"));
+        assertAllowance(p.allowances(), "EDUCATION", new BigDecimal("2655.10"));
+        assertAllowance(p.allowances(), "FUEL",      new BigDecimal("3982.65"));
+
+        // TRANSPORT must not appear for LGSS01-03
+        assertThat(p.allowances().stream().noneMatch(a -> "TRANSPORT".equals(a.allowanceCode())))
+            .as("TRANSPORT must not appear for LGSS01-03 management")
+            .isTrue();
+
+        assertThat(p.totalAllowances()).isEqualByComparingTo(new BigDecimal("9292.85"));
+        assertThat(p.gross()).isEqualByComparingTo(new BigDecimal("22568.35"));
+        assertThat(p.napsaEmployee()).isEqualByComparingTo(new BigDecimal("1128.42"));
+        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("21439.93"));
+
+        // PAYE 2024: 0 + 400 + 630 + 37% × 12,239.93
+        assertThat(p.paye())
+            .as("PAYE on 21,439.93 at 2024 bands")
+            .isEqualByComparingTo(new BigDecimal("5558.77"));
+
+        assertThat(p.net())
+            .as("net = 22,568.35 - (1,128.42 + 5,558.77 + 132.76 + 53.10)")
+            .isEqualByComparingTo(new BigDecimal("15695.30"));
+    }
+
+    // =================================================================
+    // Test 5 — FireSUZ LGSS08/notch-3 at 2024-06 (Fire-specific allowances)
+    // =================================================================
+
+    @Test
+    @DisplayName("Reconstruct 2024 FireSUZ LGSS08/notch-3 payslip (STANDBY + RATION + EXCESS_HOURS)")
+    void reconstructFireSUZ2024() {
+        seedEmployee("EMP-RECON-2024-F", "LGSS08", 3, "UNIONIZED_FIRESUZ", "FIRESUZ");
+
+        PayslipReconstruction p = calculator.reconstructPayslip(
+                "EMP-RECON-2024-F", CHILANGA, PERIOD_2024_START, PERIOD_2024_END);
+
+        // Basic from V147 (FireSUZ shares LGSS08-14 notches): 100,075 + 2 × 2,867 = 105,809 annual
+        assertThat(p.basic())
+            .as("LGSS08/notch-3 monthly (2024, FireSUZ shares unionized notch values)")
+            .isEqualByComparingTo(new BigDecimal("8817.42"));
+
+        // Base allowances (55%)
+        assertAllowance(p.allowances(), "HOUSING",   new BigDecimal("1763.48"));
+        assertAllowance(p.allowances(), "TRANSPORT", new BigDecimal("1322.61"));
+        assertAllowance(p.allowances(), "EDUCATION", new BigDecimal("1763.48"));
+
+        // Fire-specific
+        assertAllowance(p.allowances(), "STANDBY",      new BigDecimal("529.05"));   // 6%
+        assertAllowance(p.allowances(), "RATION",       new BigDecimal("1102.18"));  // 12.5% for LGSS08
+        assertAllowance(p.allowances(), "EXCESS_HOURS", new BigDecimal("400.00"));   // flat K400
+
+        // RISK should NOT appear for a generic FireSUZ employee
+        // (needs department=Fire or Solid Waste — our test seed has neither)
+        assertThat(p.allowances().stream().noneMatch(a -> "RISK".equals(a.allowanceCode())))
+            .as("RISK requires Fire/Solid Waste department; generic seed should not receive it")
+            .isTrue();
+
+        // Total: 5 allowances totaling 6,880.80
+        assertThat(p.totalAllowances()).isEqualByComparingTo(new BigDecimal("6880.80"));
+        assertThat(p.gross()).isEqualByComparingTo(new BigDecimal("15698.22"));
+        assertThat(p.napsaEmployee()).isEqualByComparingTo(new BigDecimal("784.91"));
+        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("14913.31"));
+
+        // PAYE 2024 on taxable 14,913.31:
+        //   0% × 5,100 = 0
+        //   20% × 2,000 = 400.00
+        //   30% × 2,100 = 630.00
+        //   37% × 5,713.31 = 2,113.92 (HALF_UP on 2,113.9247)
+        //   Total = 3,143.92
+        assertThat(p.paye())
+            .as("PAYE on 14,913.31 at 2024 bands")
+            .isEqualByComparingTo(new BigDecimal("3143.92"));
+
+        assertThat(p.net())
+            .as("net = 15,698.22 - (784.91 + 3,143.92 + 88.17 + 35.27)")
+            .isEqualByComparingTo(new BigDecimal("11645.95"));
     }
 
     // =================================================================
