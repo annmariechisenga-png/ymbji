@@ -73,6 +73,8 @@ class RetroactivePayrollReconstructionTest {
     private static final LocalDate PERIOD_START = LocalDate.of(2023, 6, 1);
     private static final LocalDate PERIOD_2024_START = LocalDate.of(2024, 6, 1);
     private static final LocalDate PERIOD_2024_END = LocalDate.of(2024, 6, 30);
+    private static final LocalDate PERIOD_2025_START = LocalDate.of(2025, 6, 1);
+    private static final LocalDate PERIOD_2025_END = LocalDate.of(2025, 6, 30);
     private static final LocalDate PERIOD_END = LocalDate.of(2023, 6, 30);
 
     @BeforeEach
@@ -326,6 +328,86 @@ class RetroactivePayrollReconstructionTest {
         assertThat(p.net())
             .as("net = 15,698.22 - (784.91 + 3,143.92 + 88.17 + 35.27)")
             .isEqualByComparingTo(new BigDecimal("11645.95"));
+    }
+
+    // =================================================================
+    // Test 6 — Unionized LGSS10/notch-3 at 2025-06
+    // =================================================================
+
+    @Test
+    @DisplayName("Reconstruct 2025 unionized LGSS10/notch-3 payslip (TRANSPORT 17%)")
+    void reconstructUnionized2025() {
+        seedEmployee("EMP-RECON-2025-U", "LGSS10", 3, "UNIONIZED_ZULAWU", "ZULAWU");
+
+        PayslipReconstruction p = calculator.reconstructPayslip(
+                "EMP-RECON-2025-U", CHILANGA, PERIOD_2025_START, PERIOD_2025_END);
+
+        // Basic from V152: 90,552 + 2 × 2,686 = 95,924 annual / 7,993.67 monthly
+        assertThat(p.basic())
+            .as("LGSS10/notch-3 monthly (2025 CA)")
+            .isEqualByComparingTo(new BigDecimal("7993.67"));
+
+        // 2025 allowances: HOUSING 20% + TRANSPORT 17% + EDUCATION 20% = 57%
+        assertAllowance(p.allowances(), "HOUSING",   new BigDecimal("1598.73"));
+        assertAllowance(p.allowances(), "TRANSPORT", new BigDecimal("1358.92"));
+        assertAllowance(p.allowances(), "EDUCATION", new BigDecimal("1598.73"));
+
+        assertThat(p.totalAllowances()).isEqualByComparingTo(new BigDecimal("4556.38"));
+        assertThat(p.gross()).isEqualByComparingTo(new BigDecimal("12550.05"));
+        assertThat(p.napsaEmployee()).isEqualByComparingTo(new BigDecimal("627.50"));
+
+        // PAYE 2025: 0 + 400 + 630 + 37% × (11,922.55 - 9,200) = 3,143.92... wait
+        // Taxable = 12,550.05 - 627.50 = 11,922.55
+        // 37% × (11,922.55 - 9,200) = 37% × 2,722.55 = 1,007.34
+        // Total PAYE = 400 + 630 + 1,007.34 = 2,037.34
+        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("11922.55"));
+        assertThat(p.paye())
+            .as("PAYE on 11,922.55 at 2025 bands")
+            .isEqualByComparingTo(new BigDecimal("2037.34"));
+
+        // Net = 12,550.05 - (627.50 + 2,037.34 + 79.94 + 31.97) = 9,773.30
+        assertThat(p.net()).isEqualByComparingTo(new BigDecimal("9773.30"));
+    }
+
+    // =================================================================
+    // Test 7 — Management LGSS03/notch-4 at 2025-06
+    // =================================================================
+
+    @Test
+    @DisplayName("Reconstruct 2025 management LGSS03/notch-4 payslip (FUEL 32%, TRANSPORT 17%)")
+    void reconstructManagement2025() {
+        seedEmployee("EMP-RECON-2025-M", "LGSS03", 4, "MANAGEMENT", null);
+
+        PayslipReconstruction p = calculator.reconstructPayslip(
+                "EMP-RECON-2025-M", CHILANGA, PERIOD_2025_START, PERIOD_2025_END);
+
+        // Basic from V153: 152,694 + 3 × 3,884 = 164,346 annual / 13,695.50 monthly
+        assertThat(p.basic())
+            .as("LGSS03/notch-4 monthly (2025 revised)")
+            .isEqualByComparingTo(new BigDecimal("13695.50"));
+
+        // 2025 management: HOUSING 20% + EDUCATION 20% + FUEL 32% = 72%
+        assertAllowance(p.allowances(), "HOUSING",   new BigDecimal("2739.10"));
+        assertAllowance(p.allowances(), "EDUCATION", new BigDecimal("2739.10"));
+        assertAllowance(p.allowances(), "FUEL",      new BigDecimal("4382.56"));
+
+        // TRANSPORT should not appear for LGSS01-03
+        assertThat(p.allowances().stream().noneMatch(a -> "TRANSPORT".equals(a.allowanceCode())))
+            .isTrue();
+
+        assertThat(p.totalAllowances()).isEqualByComparingTo(new BigDecimal("9860.76"));
+        assertThat(p.gross()).isEqualByComparingTo(new BigDecimal("23556.26"));
+
+        assertThat(p.napsaEmployee()).isEqualByComparingTo(new BigDecimal("1177.81"));
+        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("22378.45"));
+
+        // PAYE 2025 on 22,378.45: 0 + 400 + 630 + 37% × 13,178.45 (4,876.03) = 5,906.03
+        assertThat(p.paye())
+            .as("PAYE on 22,378.45 at 2025 bands")
+            .isEqualByComparingTo(new BigDecimal("5906.03"));
+
+        // Net = 23,556.26 - (1,177.81 + 5,906.03 + 136.96 + 54.78) = 16,280.68
+        assertThat(p.net()).isEqualByComparingTo(new BigDecimal("16280.68"));
     }
 
     // =================================================================

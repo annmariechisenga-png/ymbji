@@ -158,9 +158,9 @@ class RetroactiveEventImportIntegrationTest {
         // V146 (2023 historical reconstruction) added 2 more templates:
         //   CA_2023_ZULAWU, CA_2023_MANAGEMENT
         // Combined with V138's 3 (2026 templates), total is now 5.
-        // V146 added 2023 templates (2); V151 added 2024 templates (3).
-        // Total: 3 (2026) + 2 (2023) + 3 (2024) = 8
-        assertThat(templates).hasSize(8);
+        // V146 added 2023 templates (2); V151 added 2024 (3); V156 added 2025 (2).
+        // Total: 3 (2026) + 2 (2023) + 3 (2024) + 2 (2025) = 10
+        assertThat(templates).hasSize(10);
 
         var codes = templates.stream()
                 .map(t -> (String) t.get("event_code"))
@@ -172,6 +172,8 @@ class RetroactiveEventImportIntegrationTest {
                 "CA_2024_FIRESUZ",
                 "CA_2024_MANAGEMENT",
                 "CA_2024_ZULAWU",
+                "CA_2025_MANAGEMENT",
+                "CA_2025_ZULAWU",
                 "CA_2026_FIRESUZ",
                 "CA_2026_MANAGEMENT",
                 "CA_2026_ZULAWAU_NULGAW"
