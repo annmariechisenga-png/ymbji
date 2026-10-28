@@ -2,6 +2,7 @@ package com.localgov.web.federation.store;
 
 import com.localgov.web.federation.dto.AllowanceRatePreview;
 import com.localgov.web.federation.dto.NotchValuePreview;
+import com.localgov.web.federation.dto.StatutoryRulePreview;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -31,6 +32,7 @@ public class UploadSessionStore {
 
     private final ConcurrentMap<UUID, NotchValuePreview> previews = new ConcurrentHashMap<>();
     private final ConcurrentMap<UUID, AllowanceRatePreview> allowancePreviews = new ConcurrentHashMap<>();
+    private final ConcurrentMap<UUID, StatutoryRulePreview> statutoryPreviews = new ConcurrentHashMap<>();
 
     public UUID save(NotchValuePreview preview) {
         previews.put(preview.uploadId(), preview);
@@ -69,9 +71,27 @@ public class UploadSessionStore {
         return Optional.of(preview);
     }
 
+    // --- Statutory rule upload sessions ---
+
+    public UUID saveStatutoryRulePreview(StatutoryRulePreview preview) {
+        statutoryPreviews.put(preview.uploadId(), preview);
+        return preview.uploadId();
+    }
+
+    public Optional<StatutoryRulePreview> getStatutoryRulePreview(UUID uploadId) {
+        StatutoryRulePreview preview = statutoryPreviews.get(uploadId);
+        if (preview == null) return Optional.empty();
+        if (preview.uploadedAt().isBefore(LocalDateTime.now().minusMinutes(TTL_MINUTES))) {
+            statutoryPreviews.remove(uploadId);
+            return Optional.empty();
+        }
+        return Optional.of(preview);
+    }
+
     /** Visible for tests — clear all previews. */
     public void clear() {
         previews.clear();
         allowancePreviews.clear();
+        statutoryPreviews.clear();
     }
 }
