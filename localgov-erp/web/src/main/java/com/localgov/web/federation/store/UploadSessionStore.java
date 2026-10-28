@@ -1,5 +1,6 @@
 package com.localgov.web.federation.store;
 
+import com.localgov.web.federation.dto.AllowanceRatePreview;
 import com.localgov.web.federation.dto.NotchValuePreview;
 import org.springframework.stereotype.Component;
 
@@ -29,6 +30,7 @@ public class UploadSessionStore {
     private static final long TTL_MINUTES = 30;
 
     private final ConcurrentMap<UUID, NotchValuePreview> previews = new ConcurrentHashMap<>();
+    private final ConcurrentMap<UUID, AllowanceRatePreview> allowancePreviews = new ConcurrentHashMap<>();
 
     public UUID save(NotchValuePreview preview) {
         previews.put(preview.uploadId(), preview);
@@ -47,10 +49,29 @@ public class UploadSessionStore {
 
     public void remove(UUID uploadId) {
         previews.remove(uploadId);
+        allowancePreviews.remove(uploadId);
+    }
+
+    // --- Allowance-rate upload sessions ---
+
+    public UUID saveAllowancePreview(AllowanceRatePreview preview) {
+        allowancePreviews.put(preview.uploadId(), preview);
+        return preview.uploadId();
+    }
+
+    public Optional<AllowanceRatePreview> getAllowancePreview(UUID uploadId) {
+        AllowanceRatePreview preview = allowancePreviews.get(uploadId);
+        if (preview == null) return Optional.empty();
+        if (preview.uploadedAt().isBefore(LocalDateTime.now().minusMinutes(TTL_MINUTES))) {
+            allowancePreviews.remove(uploadId);
+            return Optional.empty();
+        }
+        return Optional.of(preview);
     }
 
     /** Visible for tests — clear all previews. */
     public void clear() {
         previews.clear();
+        allowancePreviews.clear();
     }
 }
