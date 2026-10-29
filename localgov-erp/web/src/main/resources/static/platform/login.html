@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YMBJI Platform — Sign In</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --ymbji-green:  #0A3622;
+            --ymbji-copper: #B87333;
+            --flag-red:     #DE2010;
+            --flag-green:   #198A00;
+            --bg-light:     #f4f7f5;
+            --text-dark:    #1a2e1a;
+            --border:       #d4e6d4;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-light); margin: 0; padding: 0;
+            display: flex; align-items: center; justify-content: center;
+            min-height: 100vh;
+        }
+        .login-card {
+            background: #fff; width: 100%; max-width: 440px;
+            padding: 40px; border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(10,54,34,0.08);
+            border-top: 6px solid var(--ymbji-copper);
+            text-align: center;
+        }
+        .logo-container { margin-bottom: 24px; }
+        .logo-container img { height: 60px; margin-bottom: 12px; max-width: 100%; }
+        .logo-container h1 {
+            font-size: 1.4rem; color: var(--ymbji-green);
+            margin: 0; font-weight: 800; letter-spacing: -0.5px;
+        }
+        .logo-container p {
+            margin: 4px 0 0 0; font-size: 0.8rem;
+            color: var(--ymbji-copper); font-weight: 700;
+            text-transform: uppercase; letter-spacing: 1.5px;
+        }
+        .form-group { text-align: left; margin-bottom: 20px; }
+        label {
+            display: block; font-size: 0.78rem; font-weight: 700;
+            color: var(--text-dark); margin-bottom: 6px;
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        input {
+            width: 100%; padding: 12px 14px;
+            border: 1px solid var(--border); border-radius: 8px;
+            font-size: 0.95rem; font-family: inherit;
+            transition: border-color 0.2s;
+        }
+        input:focus { outline: none; border-color: var(--ymbji-green); }
+        button {
+            width: 100%; padding: 14px;
+            background: var(--ymbji-green); color: #fff;
+            border: none; border-radius: 8px;
+            font-size: 1rem; font-weight: 700;
+            cursor: pointer; transition: background 0.2s;
+        }
+        button:hover:not(:disabled) { background: #061f13; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .status {
+            padding: 12px; border-radius: 8px; margin-bottom: 20px;
+            font-size: 0.85rem; display: none; text-align: left;
+        }
+        .status.error { background: #fdeded; color: var(--flag-red); display: block; border-left: 4px solid var(--flag-red); }
+        .status.info { background: #eef5ee; color: var(--ymbji-green); display: block; border-left: 4px solid var(--flag-green); }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="logo-container">
+            <img src="/platform/assets/ymbji-logo.png" alt="YMBJI Logo" onerror="this.style.display='none'">
+            <h1>YMBJI</h1>
+            <p>Flow. Automate. Grow.</p>
+        </div>
+
+        <div id="statusMsg" class="status"></div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" required autocomplete="username" placeholder="e.g. admin.superadmin">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" required autocomplete="current-password" placeholder="Password">
+            </div>
+
+            <div class="form-group" id="mfaGroup" style="display:none;">
+                <label for="mfaCode" style="color: var(--ymbji-copper);">MFA Code (Required)</label>
+                <input type="text" id="mfaCode" placeholder="6-digit code" autocomplete="one-time-code">
+            </div>
+
+            <button type="submit" id="submitBtn">Sign In</button>
+        </form>
+    </div>
+
+<script>
+    var isMfaStep = false;
+
+    function setStatus(msg, kind) {
+        var el = document.getElementById('statusMsg');
+        el.className = 'status ' + kind;
+        el.innerHTML = msg;
+    }
+
+    function clearStatus() {
+        document.getElementById('statusMsg').style.display = 'none';
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        clearStatus();
+
+        var btn = document.getElementById('submitBtn');
+        btn.disabled = true;
+        btn.textContent = 'Authenticating...';
+
+        var username = document.getElementById('username').value;
+        var password = document.getElementById('password').value;
+        var mfaCode = document.getElementById('mfaCode').value;
+
+        var payload = { username: username, password: password };
+        if (isMfaStep && mfaCode) {
+            payload.mfaCode = mfaCode;
+        }
+
+        try {
+            var res = await fetch('/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            var data = await res.json();
+
+            if (!res.ok) {
+                setStatus('Login failed: ' + (data.message || 'Invalid credentials'), 'error');
+                btn.disabled = false;
+                btn.textContent = 'Sign In';
+                return;
+            }
+
+            if (data.mfaRequired) {
+                isMfaStep = true;
+                document.getElementById('mfaGroup').style.display = 'block';
+                document.getElementById('mfaCode').required = true;
+                document.getElementById('mfaCode').focus();
+                setStatus('MFA required. Please enter the code from your authenticator app.', 'info');
+                btn.disabled = false;
+                btn.textContent = 'Verify & Sign In';
+                return;
+            }
+
+            localStorage.setItem('erp_token', data.token);
+            localStorage.setItem('erp_user', JSON.stringify(data));
+            localStorage.setItem('erp_user_id', data.username);
+
+            window.location.replace('/platform/preview.html');
+
+        } catch (err) {
+            setStatus('Network error: ' + err.message, 'error');
+            btn.disabled = false;
+            btn.textContent = 'Sign In';
+        }
+    });
+
+    window.addEventListener('DOMContentLoaded', function() {
+        var t = localStorage.getItem('erp_token');
+        if (t) {
+            fetch('/auth/me', { headers: { 'Authorization': 'Bearer ' + t } })
+                .then(function(r) {
+                    if (r.ok) window.location.replace('/platform/preview.html');
+                }).catch(function(){});
+        }
+    });
+</script>
+</body>
+</html>

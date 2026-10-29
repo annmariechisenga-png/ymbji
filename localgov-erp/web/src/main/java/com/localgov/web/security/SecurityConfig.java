@@ -73,7 +73,7 @@ public class SecurityConfig {
                         .accessDeniedHandler(restAccessDeniedHandler)
                 )
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/index.html", "/chilanga/**", "/status", "/auth/login", "/login/**", "/oauth2/**", "/saml2/**", "/error", "/health", "/actuator/health", "/actuator/info", "/actuator/metrics", "/actuator/prometheus", "/v3/api-docs/**", "/swagger-ui/**", "/meta/schema/**", "/dashboard/**", "/examples/**", "/assets/**", "/privacy/compliance").permitAll()
+                        .requestMatchers("/", "/index.html", "/chilanga/**", "/platform/**", "/status", "/auth/login", "/login/**", "/oauth2/**", "/saml2/**", "/error", "/health", "/actuator/health", "/actuator/info", "/actuator/metrics", "/actuator/prometheus", "/v3/api-docs/**", "/swagger-ui/**", "/meta/schema/**", "/dashboard/**", "/examples/**", "/assets/**", "/privacy/compliance").permitAll()
                         .requestMatchers("/auth/mfa/**").authenticated()
                         .requestMatchers("/security/audit-logs/**").hasAnyRole("ADMIN", "HR")
                         .requestMatchers("/privacy/data-requests/**").authenticated()
