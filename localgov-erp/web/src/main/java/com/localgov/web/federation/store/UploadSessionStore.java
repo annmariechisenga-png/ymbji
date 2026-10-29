@@ -2,6 +2,7 @@ package com.localgov.web.federation.store;
 
 import com.localgov.web.federation.dto.AllowanceRatePreview;
 import com.localgov.web.federation.dto.NotchValuePreview;
+import com.localgov.web.federation.dto.HardshipClassificationPreview;
 import com.localgov.web.federation.dto.StatutoryRulePreview;
 import org.springframework.stereotype.Component;
 
@@ -33,6 +34,7 @@ public class UploadSessionStore {
     private final ConcurrentMap<UUID, NotchValuePreview> previews = new ConcurrentHashMap<>();
     private final ConcurrentMap<UUID, AllowanceRatePreview> allowancePreviews = new ConcurrentHashMap<>();
     private final ConcurrentMap<UUID, StatutoryRulePreview> statutoryPreviews = new ConcurrentHashMap<>();
+    private final ConcurrentMap<UUID, HardshipClassificationPreview> hardshipPreviews = new ConcurrentHashMap<>();
 
     public UUID save(NotchValuePreview preview) {
         previews.put(preview.uploadId(), preview);
@@ -88,10 +90,28 @@ public class UploadSessionStore {
         return Optional.of(preview);
     }
 
+    // --- Hardship classification upload sessions ---
+
+    public UUID saveHardshipPreview(HardshipClassificationPreview preview) {
+        hardshipPreviews.put(preview.uploadId(), preview);
+        return preview.uploadId();
+    }
+
+    public Optional<HardshipClassificationPreview> getHardshipPreview(UUID uploadId) {
+        HardshipClassificationPreview preview = hardshipPreviews.get(uploadId);
+        if (preview == null) return Optional.empty();
+        if (preview.uploadedAt().isBefore(LocalDateTime.now().minusMinutes(TTL_MINUTES))) {
+            hardshipPreviews.remove(uploadId);
+            return Optional.empty();
+        }
+        return Optional.of(preview);
+    }
+
     /** Visible for tests — clear all previews. */
     public void clear() {
         previews.clear();
         allowancePreviews.clear();
         statutoryPreviews.clear();
+        hardshipPreviews.clear();
     }
 }
