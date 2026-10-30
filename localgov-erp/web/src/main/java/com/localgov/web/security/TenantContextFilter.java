@@ -56,7 +56,8 @@ public class TenantContextFilter extends OncePerRequestFilter {
                 return;
             }
 
-            binder.bindAndProceed(authorityCode, request, response, filterChain);
+            binder.bindAndProceed(authorityCode, user.isAuditor(),
+                                  request, response, filterChain);
             return;
         }
 

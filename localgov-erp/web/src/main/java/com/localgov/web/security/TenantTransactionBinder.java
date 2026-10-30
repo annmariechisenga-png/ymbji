@@ -53,8 +53,25 @@ public class TenantTransactionBinder {
                                HttpServletResponse response,
                                FilterChain filterChain)
             throws ServletException, IOException {
+        bindAndProceed(authorityCode, false, request, response, filterChain);
+    }
+
+    /**
+     * Overload that also sets app.is_auditor. Auditors get cross-tenant
+     * read access via fn_tenant_visible() in every RLS policy — writes
+     * still require a matching app.current_tenant (WITH CHECK keeps
+     * auditor from accidentally writing across councils).
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void bindAndProceed(String authorityCode,
+                               boolean isAuditor,
+                               HttpServletRequest request,
+                               HttpServletResponse response,
+                               FilterChain filterChain)
+            throws ServletException, IOException {
         // SET LOCAL: scoped to the transaction this method opens.
         jdbcTemplate.execute("SET LOCAL app.current_tenant = '" + authorityCode + "'");
+        jdbcTemplate.execute("SET LOCAL app.is_auditor = '" + (isAuditor ? "true" : "false") + "'");
 
         try {
             filterChain.doFilter(request, response);

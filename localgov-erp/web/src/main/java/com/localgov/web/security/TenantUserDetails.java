@@ -28,4 +28,16 @@ public interface TenantUserDetails {
     default boolean isSuperadmin() {
         return false;
     }
+
+    /**
+     * TRUE if this user has ROLE_AUDITOR — a read-only Ministry role
+     * that can query across all council tenants (RLS bypass via the
+     * app.is_auditor session GUC).
+     *
+     * Defaults to false; TenantUser overrides it by checking the
+     * authorities list.
+     */
+    default boolean isAuditor() {
+        return false;
+    }
 }

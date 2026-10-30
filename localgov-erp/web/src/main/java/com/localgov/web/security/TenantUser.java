@@ -63,4 +63,10 @@ public class TenantUser extends User implements TenantUserDetails {
     public boolean isSuperadmin() {
         return superadmin;
     }
+
+    @Override
+    public boolean isAuditor() {
+        return getAuthorities().stream()
+                .anyMatch(a -> "ROLE_AUDITOR".equals(a.getAuthority()));
+    }
 }

@@ -76,6 +76,7 @@ public class SecurityConfig {
                         .requestMatchers("/", "/index.html", "/chilanga/**", "/platform/**", "/status", "/auth/login", "/login/**", "/oauth2/**", "/saml2/**", "/error", "/health", "/actuator/health", "/actuator/info", "/actuator/metrics", "/actuator/prometheus", "/v3/api-docs/**", "/swagger-ui/**", "/meta/schema/**", "/dashboard/**", "/examples/**", "/assets/**", "/privacy/compliance").permitAll()
                         .requestMatchers("/auth/mfa/**").authenticated()
                         .requestMatchers("/security/audit-logs/**").hasAnyRole("ADMIN", "HR")
+                        .requestMatchers("/audit/**").hasRole("AUDITOR")
                         .requestMatchers("/privacy/data-requests/**").authenticated()
                         .requestMatchers("/api/salary-scales/**").hasAnyRole("ADMIN", "HR", "PAYROLL")
                         .requestMatchers("/api/employment/process-annual-increment").hasAnyRole("ADMIN", "HR")
