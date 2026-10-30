@@ -411,6 +411,99 @@ class RetroactivePayrollReconstructionTest {
     }
 
     // =================================================================
+    // Test 3 — FireSUZ LGSS08/notch-3 at 2025-06
+    // =================================================================
+    //
+    // FireSUZ = base allowances (HOUSING/EDUCATION/RISK from V154's
+    //           NULL-scoped rows) + FireSUZ-specific TRANSPORT (17%),
+    //           STANDBY (6%), RATION (tiered by scale), EXCESS_HOURS
+    //           (K600 flat).
+    //
+    // V140.7 closes the 2025 FireSUZ gap: V154 explicitly skipped these
+    // Fire-specific rates, so without V159 the reconstruction would
+    // inherit 2024 or 2026 values.
+    //
+    // Chosen scale LGSS08 (= Divisional Fire Officer / lowest Fire grade).
+    // RATION for LGSS08 is 12.5% per the tier rule.
+    // Council is Chilanga (NONE hardship, so no RURAL/REMOTE line).
+
+    @Test
+    @DisplayName("Reconstruct 2025 FireSUZ LGSS08/notch-3 payslip")
+    void reconstructFireSUZ2025() {
+        seedEmployee("EMP-RECON-FIRE", "LGSS08", 3, "UNIONIZED_FIRESUZ", "FIRESUZ");
+
+        // Set position so RISK_ALLOWANCE_ELIGIBILITY (position_in list of 9
+        // Fire positions) matches. LGSS08 = Divisional Fire Officer per
+        // the FireSUZ 2025 CA structure.
+        jdbc.update("UPDATE employees SET position = ? WHERE employee_id = ?",
+                "Divisional Fire Officer", "EMP-RECON-FIRE");
+
+        PayslipReconstruction p = calculator.reconstructPayslip(
+                "EMP-RECON-FIRE", CHILANGA, PERIOD_2025_START, PERIOD_2025_END);
+
+        // --- Basic: LGSS08/notch-3 at 2025-01-01 (V152, shared with Unionized) ---
+        assertThat(p.salaryScale()).isEqualTo("LGSS08");
+        assertThat(p.notchNo()).isEqualTo(3);
+        assertThat(p.basic())
+            .as("LGSS08/notch-3 monthly (2025 CA Appendix 1, shared with Unionized)")
+            .isEqualByComparingTo(new BigDecimal("9317.42"));
+
+        // --- Base allowances (inherited from V154 NULL-scoped rows) ---
+        assertAllowance(p.allowances(), "HOUSING",   new BigDecimal("1863.48"));  // 20%
+        assertAllowance(p.allowances(), "EDUCATION", new BigDecimal("1863.48"));  // 20%
+        assertAllowance(p.allowances(), "RISK",      new BigDecimal("186.35"));   // 2%
+
+        // --- FireSUZ-specific TRANSPORT row (V159, since V154 scoped base to other units) ---
+        assertAllowance(p.allowances(), "TRANSPORT", new BigDecimal("1583.96"));  // 17%
+
+        // --- FireSUZ-specific Fire allowances (V159) ---
+        assertAllowance(p.allowances(), "STANDBY",      new BigDecimal("559.05")); // 6%
+        assertAllowance(p.allowances(), "RATION",       new BigDecimal("1164.68")); // 12.5% for LGSS08
+        assertAllowance(p.allowances(), "EXCESS_HOURS", new BigDecimal("600.00"));  // K600 flat (2025 value)
+
+        // --- Hardship: Chilanga is NONE, so no RURAL/REMOTE ---
+        assertThat(p.allowances().stream()
+                .noneMatch(a -> "RURAL_HARDSHIP".equals(a.allowanceCode())))
+            .as("Chilanga is NONE — no RURAL_HARDSHIP")
+            .isTrue();
+        assertThat(p.allowances().stream()
+                .noneMatch(a -> "REMOTE_HARDSHIP".equals(a.allowanceCode())))
+            .as("Chilanga is NONE — no REMOTE_HARDSHIP")
+            .isTrue();
+
+        // --- Aggregate: 7 allowances totaling 63% of basic ---
+        // HOUSING 20 + EDUCATION 20 + RISK 2 + TRANSPORT 17 + STANDBY 6 + RATION 12.5 + EXCESS_HOURS (flat)
+        // % components: 77.5% × 9,317.42 = 7,220.00 ; plus K600 flat = 7,820.00
+        // Note: sum of % components rounds per-line, so we assert on totalAllowances
+        // by summing the expected per-line amounts, not by recomputing a % of basic.
+        BigDecimal expectedTotalAllowances = new BigDecimal("1863.48")   // HOUSING
+                .add(new BigDecimal("1863.48"))                          // EDUCATION
+                .add(new BigDecimal("186.35"))                           // RISK
+                .add(new BigDecimal("1583.96"))                          // TRANSPORT
+                .add(new BigDecimal("559.05"))                           // STANDBY
+                .add(new BigDecimal("1164.68"))                          // RATION
+                .add(new BigDecimal("600.00"));                          // EXCESS_HOURS
+        assertThat(p.totalAllowances())
+            .as("total allowances = sum of 7 allowance lines")
+            .isEqualByComparingTo(expectedTotalAllowances);
+
+        // --- Gross: basic + total allowances ---
+        BigDecimal expectedGross = new BigDecimal("9317.42").add(expectedTotalAllowances);
+        assertThat(p.gross())
+            .as("gross = basic + total allowances")
+            .isEqualByComparingTo(expectedGross);
+
+        // --- Statutory: sanity check > 0 (exact values depend on rounding path) ---
+        assertThat(p.napsaEmployee()).as("NAPSA should be > 0").isGreaterThan(BigDecimal.ZERO);
+        assertThat(p.nhimaEmployee()).as("NHIMA should be > 0").isGreaterThan(BigDecimal.ZERO);
+        assertThat(p.paye()).as("PAYE should be > 0").isGreaterThan(BigDecimal.ZERO);
+        assertThat(p.net())
+            .as("net = gross - deductions")
+            .isLessThan(expectedGross)
+            .isGreaterThan(BigDecimal.ZERO);
+    }
+
+    // =================================================================
     // Helpers
     // =================================================================
 
