@@ -72,6 +72,17 @@ public class StatutoryCalculator {
                                        LocalDate periodStart,
                                        int periodYear,
                                        BigDecimal grossAllowances) {
+        return compute(employeeId, authorityCode, salary, periodStart, periodYear,
+                grossAllowances, BigDecimal.ZERO);
+    }
+
+    public StatutoryDeductions compute(String employeeId,
+                                       String authorityCode,
+                                       ResolvedSalary salary,
+                                       LocalDate periodStart,
+                                       int periodYear,
+                                       BigDecimal grossAllowances,
+                                       BigDecimal housingAllowanceAmount) {
 
         LocalDate firstAppointment = loadFirstAppointment(employeeId, authorityCode);
         boolean lasfScheme = firstAppointment != null
@@ -104,9 +115,11 @@ public class StatutoryCalculator {
             BigDecimal uncappedEmployer = normalize(gross.multiply(erRate));
 
             if (ceiling != null) {
-                BigDecimal maxContribution = normalize(ceiling.multiply(empRate));
-                napsaEmployee = uncappedEmployee.min(maxContribution);
-                napsaEmployer = uncappedEmployer.min(maxContribution);
+                // The ceiling is the COMBINED maximum contribution (Employee 5% + Employer 5%).
+                // Therefore, the maximum individual contribution is ceiling / 2.
+                BigDecimal maxIndividualContribution = normalize(ceiling.divide(new BigDecimal("2")));
+                napsaEmployee = uncappedEmployee.min(maxIndividualContribution);
+                napsaEmployer = uncappedEmployer.min(maxIndividualContribution);
             } else {
                 napsaEmployee = uncappedEmployee;
                 napsaEmployer = uncappedEmployer;
@@ -125,8 +138,32 @@ public class StatutoryCalculator {
         BigDecimal funeralEmployer = normalize(basic.multiply(rate(funeralRule, "employer_rate")));
 
         // -------- Taxable gross and PAYE --------
-        BigDecimal taxableGross = normalize(gross.subtract(pensionContribution));
+        // V164: Strict ZRA 2018 rule — NAPSA does NOT reduce the PAYE base.
+        // The only reduction is the Local Authority Housing exemption.
+        BigDecimal taxableGross = normalize(gross);
+
+        if (isHousingExempt(periodStart)) {
+            taxableGross = normalize(taxableGross.subtract(housingAllowanceAmount));
+        }
+
         BigDecimal paye = computePaye(taxableGross, loadRule("PAYE_BANDS", periodStart));
+
+        // -------- Personal Levy (Cap 329) --------
+        BigDecimal personalLevyEmployee = BigDecimal.ZERO;
+        BigDecimal personalLevyEmployer = BigDecimal.ZERO; // Personal levy is employee-only
+
+        // Personal Levy is K15.00 per annum, deducted at the start of the year (January).
+        if (periodStart.getMonthValue() == 1) {
+            try {
+                JsonNode levyRule = loadRule("PERSONAL_LEVY", periodStart);
+                if (levyRule != null && levyRule.has("annual_amount")) {
+                    personalLevyEmployee = levyRule.get("annual_amount").decimalValue();
+                }
+            } catch (PayrollEngineException e) {
+                // Rule not found, default to 0
+            }
+        }
+
 
         return new StatutoryDeductions(
                 employeeId,
@@ -138,6 +175,8 @@ public class StatutoryCalculator {
                 lasfEmployer,
                 nhimaEmployee,
                 nhimaEmployer,
+                personalLevyEmployee,
+                personalLevyEmployer,
                 funeralEmployee,
                 funeralEmployer,
                 lasfScheme ? "LASF" : "NAPSA"
@@ -242,5 +281,28 @@ public class StatutoryCalculator {
 
     private BigDecimal normalize(BigDecimal value) {
         return value.setScale(MONEY_SCALE, MONEY_ROUNDING);
+    }
+
+    private boolean isHousingExempt(LocalDate periodStart) {
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT parameters->'exempt_allowances' AS exempt " +
+                "FROM compliance_rule " +
+                "WHERE rule_code = 'LOCAL_AUTHORITY_PAYE_EXEMPTION' " +
+                "  AND scope = 'NATIONAL' " +
+                "  AND effective_from <= ? " +
+                "  AND (effective_to IS NULL OR effective_to >= ?) " +
+                "ORDER BY effective_from DESC LIMIT 1",
+                java.sql.Date.valueOf(periodStart),
+                java.sql.Date.valueOf(periodStart));
+
+            if (rows.isEmpty()) return false;
+            Object exemptObj = rows.get(0).get("exempt");
+            if (exemptObj == null) return false;
+            return exemptObj.toString().contains("HOUSING");
+        } catch (Exception e) {
+            log.warn("Could not evaluate LOCAL_AUTHORITY_PAYE_EXEMPTION rule. Defaulting to false.", e);
+            return false;
+        }
     }
 }

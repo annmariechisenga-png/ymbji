@@ -224,7 +224,7 @@ class PayslipPersisterTest {
     }
 
     private StatutoryDeductions statutory() {
-        // All 12 fields, in the record's declared order:
+        // All 14 fields, in the record's declared order:
         // employeeId, taxableGross, paye, napsaEmployee, napsaEmployer,
         // lasfEmployee, lasfEmployer, nhimaEmployee, nhimaEmployer,
         // grzFuneralEmployee, grzFuneralEmployer, contributionScheme
@@ -238,6 +238,8 @@ class PayslipPersisterTest {
             BigDecimal.ZERO,             // lasfEmployer
             new BigDecimal("50.00"),     // nhimaEmployee
             new BigDecimal("50.00"),     // nhimaEmployer
+            BigDecimal.ZERO,             // personalLevyEmployee
+            BigDecimal.ZERO,             // personalLevyEmployer
             new BigDecimal("25.00"),     // grzFuneralEmployee
             new BigDecimal("25.00"),     // grzFuneralEmployer
             "NAPSA");

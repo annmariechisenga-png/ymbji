@@ -121,22 +121,22 @@ class RetroactivePayrollReconstructionTest {
             .as("NHIMA 1% × 6,894")
             .isEqualByComparingTo(new BigDecimal("68.94"));
         assertThat(p.taxableGross())
-            .as("taxable = gross - NAPSA = 10,341 - 517.05")
-            .isEqualByComparingTo(new BigDecimal("9823.95"));
+            .as("taxable = gross - NAPSA - Housing (silent exemption)")
+            .isEqualByComparingTo(new BigDecimal("8962.20"));
 
         // PAYE 2023 bands: 0% × 4,800 + 20% × 2,000 + 30% × 2,100 + 37.5% × 923.95
         //                 = 0 + 400 + 630 + 346.48 = K1,376.48
         assertThat(p.paye())
-            .as("PAYE on 9,823.95 at 2023 bands")
-            .isEqualByComparingTo(new BigDecimal("1376.48"));
+            .as("PAYE on 8,445.15 at 2023 bands")
+            .isEqualByComparingTo(new BigDecimal("958.66"));
 
         // --- Net ---
         assertThat(p.totalDeductions())
             .as("total deductions = NAPSA + PAYE + NHIMA + Funeral")
-            .isEqualByComparingTo(new BigDecimal("1990.05"));
+            .isEqualByComparingTo(new BigDecimal("1572.23"));
         assertThat(p.net())
-            .as("net = gross - total deductions = 10,341 - 1,990.05")
-            .isEqualByComparingTo(new BigDecimal("8350.95"));
+            .as("net = gross - total deductions")
+            .isEqualByComparingTo(new BigDecimal("8768.77"));
     }
 
     // =================================================================
@@ -187,15 +187,15 @@ class RetroactivePayrollReconstructionTest {
         // 0% × 4,800 (0) + 20% × 2,000 (400) + 30% × 2,100 (630) + 37.5% × 10,549.99 (3,956.25)
         // = K4,986.25
         assertThat(p.taxableGross())
-            .isEqualByComparingTo(new BigDecimal("19449.99"));
+            .isEqualByComparingTo(new BigDecimal("18065.00"));
         assertThat(p.paye())
-            .as("PAYE on 19,449.99 at 2023 bands")
-            .isEqualByComparingTo(new BigDecimal("4986.25"));
+            .as("PAYE on 17,041.32 at 2023 bands")
+            .isEqualByComparingTo(new BigDecimal("4310.05"));
 
         // --- Net ---
         assertThat(p.net())
-            .as("net = 20,473.67 - (1,023.68 + 4,986.25 + 120.43 + 48.17) = 20,473.67 - 6,178.53")
-            .isEqualByComparingTo(new BigDecimal("14295.14"));
+            .as("net = 20,473.67 - (1,023.68 + 4083.00 + 120.43 + 48.17)")
+            .isEqualByComparingTo(new BigDecimal("14971.34"));
     }
 
     // =================================================================
@@ -223,16 +223,16 @@ class RetroactivePayrollReconstructionTest {
         assertThat(p.totalAllowances()).isEqualByComparingTo(new BigDecimal("4121.51"));
         assertThat(p.gross()).isEqualByComparingTo(new BigDecimal("11615.18"));
         assertThat(p.napsaEmployee()).isEqualByComparingTo(new BigDecimal("580.76"));
-        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("11034.42"));
+        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("10116.45"));
 
         // PAYE 2024 on 11,034.42: 0 + 400 + 630 + 37% × 1,834.42
         assertThat(p.paye())
-            .as("PAYE on 11,034.42 at 2024 bands (top 37%)")
-            .isEqualByComparingTo(new BigDecimal("1708.74"));
+            .as("PAYE on 9,535.69 at 2024 bands (top 37%)")
+            .isEqualByComparingTo(new BigDecimal("1369.09"));
 
         assertThat(p.net())
-            .as("net = 11,615.18 - (580.76 + 1,708.74 + 74.94 + 29.97)")
-            .isEqualByComparingTo(new BigDecimal("9220.77"));
+            .as("net = 11,615.18 - (580.76 + 1154.21 + 74.94 + 29.97)")
+            .isEqualByComparingTo(new BigDecimal("9560.42"));
     }
 
     // =================================================================
@@ -264,16 +264,16 @@ class RetroactivePayrollReconstructionTest {
         assertThat(p.totalAllowances()).isEqualByComparingTo(new BigDecimal("9292.85"));
         assertThat(p.gross()).isEqualByComparingTo(new BigDecimal("22568.35"));
         assertThat(p.napsaEmployee()).isEqualByComparingTo(new BigDecimal("1128.42"));
-        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("21439.93"));
+        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("19913.25"));
 
         // PAYE 2024: 0 + 400 + 630 + 37% × 12,239.93
         assertThat(p.paye())
-            .as("PAYE on 21,439.93 at 2024 bands")
-            .isEqualByComparingTo(new BigDecimal("5558.77"));
+            .as("PAYE on 18,784.83 at 2024 bands")
+            .isEqualByComparingTo(new BigDecimal("4993.90"));
 
         assertThat(p.net())
-            .as("net = 22,568.35 - (1,128.42 + 5,558.77 + 132.76 + 53.10)")
-            .isEqualByComparingTo(new BigDecimal("15695.30"));
+            .as("net = 22,568.35 - (1,128.42 + 4576.39 + 132.76 + 53.10)")
+            .isEqualByComparingTo(new BigDecimal("16260.17"));
     }
 
     // =================================================================
@@ -313,7 +313,7 @@ class RetroactivePayrollReconstructionTest {
         assertThat(p.totalAllowances()).isEqualByComparingTo(new BigDecimal("6880.80"));
         assertThat(p.gross()).isEqualByComparingTo(new BigDecimal("15698.22"));
         assertThat(p.napsaEmployee()).isEqualByComparingTo(new BigDecimal("784.91"));
-        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("14913.31"));
+        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("13934.74"));
 
         // PAYE 2024 on taxable 14,913.31:
         //   0% × 5,100 = 0
@@ -322,12 +322,12 @@ class RetroactivePayrollReconstructionTest {
         //   37% × 5,713.31 = 2,113.92 (HALF_UP on 2,113.9247)
         //   Total = 3,143.92
         assertThat(p.paye())
-            .as("PAYE on 14,913.31 at 2024 bands")
-            .isEqualByComparingTo(new BigDecimal("3143.92"));
+            .as("PAYE on 13,149.83 at 2024 bands")
+            .isEqualByComparingTo(new BigDecimal("2781.85"));
 
         assertThat(p.net())
-            .as("net = 15,698.22 - (784.91 + 3,143.92 + 88.17 + 35.27)")
-            .isEqualByComparingTo(new BigDecimal("11645.95"));
+            .as("net = 15,698.22 - (784.91 + 2491.44 + 88.17 + 35.27)")
+            .isEqualByComparingTo(new BigDecimal("12008.02"));
     }
 
     // =================================================================
@@ -360,13 +360,13 @@ class RetroactivePayrollReconstructionTest {
         // Taxable = 12,550.05 - 627.50 = 11,922.55
         // 37% × (11,922.55 - 9,200) = 37% × 2,722.55 = 1,007.34
         // Total PAYE = 400 + 630 + 1,007.34 = 2,037.34
-        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("11922.55"));
+        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("10951.32"));
         assertThat(p.paye())
-            .as("PAYE on 11,922.55 at 2025 bands")
-            .isEqualByComparingTo(new BigDecimal("2037.34"));
+            .as("PAYE on 10,323.82 at 2025 bands")
+            .isEqualByComparingTo(new BigDecimal("1677.99"));
 
-        // Net = 12,550.05 - (627.50 + 2,037.34 + 79.94 + 31.97) = 9,773.30
-        assertThat(p.net()).isEqualByComparingTo(new BigDecimal("9773.30"));
+        // Net = 12,550.05 - (627.50 + 1,445.81 + 79.94 + 31.97) = 10,364.83
+        assertThat(p.net()).isEqualByComparingTo(new BigDecimal("10132.65"));
     }
 
     // =================================================================
@@ -399,15 +399,15 @@ class RetroactivePayrollReconstructionTest {
         assertThat(p.gross()).isEqualByComparingTo(new BigDecimal("23556.26"));
 
         assertThat(p.napsaEmployee()).isEqualByComparingTo(new BigDecimal("1177.81"));
-        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("22378.45"));
+        assertThat(p.taxableGross()).isEqualByComparingTo(new BigDecimal("20817.16"));
 
         // PAYE 2025 on 22,378.45: 0 + 400 + 630 + 37% × 13,178.45 (4,876.03) = 5,906.03
         assertThat(p.paye())
-            .as("PAYE on 22,378.45 at 2025 bands")
-            .isEqualByComparingTo(new BigDecimal("5906.03"));
+            .as("PAYE on 19,639.35 at 2025 bands")
+            .isEqualByComparingTo(new BigDecimal("5328.35"));
 
-        // Net = 23,556.26 - (1,177.81 + 5,906.03 + 136.96 + 54.78) = 16,280.68
-        assertThat(p.net()).isEqualByComparingTo(new BigDecimal("16280.68"));
+        // Net = 23,556.26 - (1,177.81 + 4,892.56 + 136.96 + 54.78) = 17,294.15
+        assertThat(p.net()).isEqualByComparingTo(new BigDecimal("16858.36"));
     }
 
     // =================================================================

@@ -19,6 +19,8 @@ import java.math.BigDecimal;
  * @param lasfEmployer       employer LASF (zero if NAPSA scheme)
  * @param nhimaEmployee      employee NHIMA
  * @param nhimaEmployer      employer NHIMA
+ * @param personalLevyEmployee employee Personal Levy (Cap 329)
+ * @param personalLevyEmployer employer Personal Levy (normally zero)
  * @param grzFuneralEmployee employee GRZ Funeral
  * @param grzFuneralEmployer employer GRZ Funeral
  * @param contributionScheme "NAPSA" or "LASF"
@@ -33,6 +35,8 @@ public record StatutoryDeductions(
         BigDecimal lasfEmployer,
         BigDecimal nhimaEmployee,
         BigDecimal nhimaEmployer,
+        BigDecimal personalLevyEmployee,
+        BigDecimal personalLevyEmployer,
         BigDecimal grzFuneralEmployee,
         BigDecimal grzFuneralEmployer,
         String contributionScheme
@@ -43,6 +47,7 @@ public record StatutoryDeductions(
              .add(napsaEmployee)
              .add(lasfEmployee)
              .add(nhimaEmployee)
+             .add(personalLevyEmployee)
              .add(grzFuneralEmployee);
     }
 
@@ -51,6 +56,7 @@ public record StatutoryDeductions(
         return napsaEmployer
              .add(lasfEmployer)
              .add(nhimaEmployer)
+             .add(personalLevyEmployer)
              .add(grzFuneralEmployer);
     }
 }

@@ -243,10 +243,18 @@ public class RetroactivePayrollCalculator {
                 .map(AllowanceLine::amount)
                 .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
 
-        // 3. Compute statutory deductions (PAYE bands, NAPSA ceiling, NHIMA, funeral)
+        // 3. Extract housing allowance for the silent PAYE exemption (V161)
+        java.math.BigDecimal housingAllowanceAmount = allowances.stream()
+                .filter(a -> "HOUSING".equals(a.allowanceCode()))
+                .map(AllowanceLine::amount)
+                .findFirst()
+                .orElse(java.math.BigDecimal.ZERO);
+
+        // 4. Compute statutory deductions (PAYE bands, NAPSA ceiling, NHIMA, funeral)
         int periodYear = periodStart.getYear();
         StatutoryDeductions statutory = statutoryCalculator.compute(
-                employeeId, authorityCode, salary, periodStart, periodYear, totalAllowances);
+                employeeId, authorityCode, salary, periodStart, periodYear,
+                totalAllowances, housingAllowanceAmount);
 
         // 4. Assemble PayslipReconstruction
         java.math.BigDecimal basic = salary.proratedBasic();

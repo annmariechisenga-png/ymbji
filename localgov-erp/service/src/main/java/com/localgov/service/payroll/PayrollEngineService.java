@@ -231,9 +231,19 @@ public class PayrollEngineService {
                 // Taxable non-basic = allowances + overtime + back-pay (all taxable)
                 BigDecimal taxableNonBasic = grossAllowances.add(overtimeAmount).add(backPayAmount);
 
-                // 5d. Compute statutory on the full taxable base (arrears included → PAYE/NAPSA/NHIMA correct)
+                // V161: Extract housing allowance for silent PAYE exemption.
+                // The engine will pass it to the statutory calculator so it can
+                // reduce the PAYE taxable base without reducing the NAPSA base.
+                BigDecimal housingAllowanceAmount = allowances.stream()
+                    .filter(a -> "HOUSING".equals(a.allowanceCode()))
+                    .map(AllowanceLine::amount)
+                    .findFirst()
+                    .orElse(BigDecimal.ZERO);
+
+                // 5d. Compute statutory on the full taxable base
                 StatutoryDeductions statutory = statutoryCalculator.compute(
-                    employeeId, authorityCode, salary, periodStart, periodYear, taxableNonBasic);
+                    employeeId, authorityCode, salary, periodStart, periodYear,
+                    taxableNonBasic, housingAllowanceAmount);
 
                 // 5e. Gross including overtime + back-pay
                 BigDecimal gross = salary.proratedBasic().add(taxableNonBasic);
