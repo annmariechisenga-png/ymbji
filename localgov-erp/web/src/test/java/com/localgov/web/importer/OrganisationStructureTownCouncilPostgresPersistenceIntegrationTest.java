@@ -38,11 +38,11 @@ class OrganisationStructureTownCouncilPostgresPersistenceIntegrationTest {
     private static final Path CSV =
             Path.of("..", "town_council_machine_import.csv");
 
-    @Autowired
-    private OrganisationStructureMachineImportCsvReader csvReader;
+    private final OrganisationStructureMachineImportCsvReader csvReader =
+            new OrganisationStructureMachineImportCsvReader();
 
-    @Autowired
-    private OrganisationStructureStagingMapper mapper;
+    private final OrganisationStructureStagingMapper mapper =
+            new OrganisationStructureStagingMapper();
 
     @Autowired
     private DataExchangeBatchService batchService;
