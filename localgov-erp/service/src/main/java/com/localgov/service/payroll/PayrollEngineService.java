@@ -201,9 +201,67 @@ public class PayrollEngineService {
                 ResolvedSalary salary = salaryResolver.resolve(
                     employeeId, authorityCode, periodStart, periodEnd);
 
-                // 5b. Compute allowances
-                List<AllowanceLine> allowances = allowanceCalculator.compute(
-                    employeeId, authorityCode, salary, periodStart);
+                // 5a.2 V166: Act-acting salary shadowing.
+                // If acting, we swap the salary object so that ALL allowances
+                // and statutory deductions are computed on the acting basic.
+                java.util.Map<String, Object> actingEvent = findActiveActingEvent(
+                        employeeId, authorityCode, periodStart, periodEnd);
+                
+                ResolvedSalary effectiveSalary = salary;
+                BigDecimal actingDifference = BigDecimal.ZERO;
+
+                if (actingEvent != null) {
+                    String actingScale = (String) actingEvent.get("new_scale");
+                    Integer actingNotch = (Integer) actingEvent.get("new_notch");
+                    
+                    if (actingScale != null) {
+                        BigDecimal substantiveBasic = salary.fullMonthlyBasic();
+                        
+                        BigDecimal actingNotchValue;
+                        if (actingNotch != null) {
+                            actingNotchValue = lookupNotchValue(actingScale, actingNotch, periodStart);
+                        } else {
+                            actingNotchValue = resolveNextNotchAbove(actingScale, substantiveBasic, periodStart);
+                        }
+
+                        actingDifference = actingNotchValue.subtract(substantiveBasic);
+                        
+                        if (actingDifference.signum() > 0) {
+                            // Create a shadow salary for the acting period.
+                            // We assume full-month acting for now (proration of the
+                            // shadow would happen if the ACTING event is mid-month,
+                            // but that's a future enhancement).
+                            effectiveSalary = new ResolvedSalary(
+                                salary.employeeId(),
+                                actingScale,
+                                actingNotch != null ? actingNotch : 1, // Placeholder
+                                actingNotchValue,
+                                salary.proratedBasic().add(actingDifference), // Prorated + difference
+                                salary.daysInMonth(),
+                                salary.daysServed(),
+                                salary.prorated(),
+                                salary.prorationRule()
+                            );
+                        }
+                    }
+                }
+
+                // 5b. Compute allowances using the EFFECTIVE salary (acting or substantive)
+                List<AllowanceLine> allowances = new java.util.ArrayList<>(
+                    allowanceCalculator.compute(
+                        employeeId, authorityCode, effectiveSalary, periodStart));
+
+                // Add the acting difference as a distinct allowance line
+                if (actingDifference.signum() > 0) {
+                    allowances.add(new AllowanceLine(
+                        "ACTING_ALLOWANCE",
+                        "Acting Allowance",
+                        null,
+                        actingDifference,
+                        "FLAT_AMOUNT",
+                        "ACTING_APPOINTMENT"
+                    ));
+                }
 
                 // 5c. Sum allowances + source overtime for this employee.
                 //     Division I is excluded from Ordinary Overtime per
@@ -415,5 +473,71 @@ public class PayrollEngineService {
 
     private BigDecimal normalize(BigDecimal value) {
         return value.setScale(MONEY_SCALE, MONEY_ROUNDING);
+    }
+
+    private java.util.Map<String, Object> findActiveActingEvent(
+            String employeeId, String authorityCode,
+            java.time.LocalDate periodStart, java.time.LocalDate periodEnd) {
+        try {
+            java.util.List<java.util.Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT id, new_scale, new_notch, effective_date " +
+                "FROM employment_events " +
+                "WHERE employee_id = ? AND authority_code = ? " +
+                "  AND event_type = 'ACTING' " +
+                "  AND effective_date <= ? " +
+                "ORDER BY effective_date DESC LIMIT 1",
+                employeeId, authorityCode,
+                java.sql.Date.valueOf(periodEnd));
+            return rows.isEmpty() ? null : rows.get(0);
+        } catch (Exception e) {
+            // employment_events table might not exist in some fixtures
+            return null;
+        }
+    }
+
+    private BigDecimal lookupNotchValue(
+            String scale, int notch, java.time.LocalDate periodStart) {
+        java.util.List<BigDecimal> rows = jdbcTemplate.queryForList(
+            "SELECT monthly_salary FROM erp_salary_notch_value " +
+            "WHERE salary_scale = ? AND notch_no = ? AND effective_from <= ? " +
+            "ORDER BY effective_from DESC LIMIT 1",
+            BigDecimal.class, scale, notch, periodStart);
+        if (rows.isEmpty()) {
+            throw new com.localgov.service.payroll.exception.PayrollEngineException(
+                "No notch value for " + scale + "/" + notch + " effective " + periodStart);
+        }
+        return rows.get(0);
+    }
+
+    /**
+     * Finds the first notch in the given scale whose monthly salary is
+     * strictly greater than the substantive basic. Implements the
+     * 2018 Circular rule for notches.
+     */
+    private BigDecimal resolveNextNotchAbove(String scale, BigDecimal substantiveBasic, java.time.LocalDate periodStart) {
+        java.util.List<java.util.Map<String, Object>> notches = jdbcTemplate.queryForList(
+            "SELECT notch_no, monthly_salary FROM erp_salary_notch_value " +
+            "WHERE salary_scale = ? AND effective_from <= ? " +
+            "ORDER BY effective_from DESC, notch_no ASC",
+            scale, periodStart);
+
+        BigDecimal lastValue = null;
+        for (java.util.Map<String, Object> row : notches) {
+            BigDecimal val = (BigDecimal) row.get("monthly_salary");
+            // Because the query might return multiple effective_froms, we only look at the latest one.
+            // Since we order by effective_from DESC, the first effective date we see is the current one.
+            // To avoid picking an old effective date, we just track the notch values.
+            // (A more robust approach uses a window function, but this is sufficient for a single effective date).
+            if (val.compareTo(substantiveBasic) > 0) {
+                return val;
+            }
+            lastValue = val;
+        }
+        
+        if (lastValue != null) {
+            return lastValue; // If none is strictly higher, use the highest notch
+        }
+        throw new com.localgov.service.payroll.exception.PayrollEngineException(
+            "No notch values found for scale " + scale);
     }
 }

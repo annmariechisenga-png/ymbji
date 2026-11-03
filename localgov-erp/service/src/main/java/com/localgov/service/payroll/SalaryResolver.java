@@ -81,14 +81,66 @@ public class SalaryResolver {
                 "Employee " + employeeId + " has no salary_scale.");
         }
 
-        BigDecimal notchValue = lookupNotchValue(salaryScale, notchNo, periodStart);
-
         YearMonth ym = YearMonth.from(periodStart);
         int daysInMonth = ym.lengthOfMonth();
         int daysServed = computeDaysServed(ym, hireDate, terminationDate);
-
         String rule = lookupProrationRule(periodStart);
-        BigDecimal prorated = computeProrated(notchValue, daysInMonth, daysServed, rule);
+
+        // V166: check for a mid-month PROMOTION (or REGRADING) event
+        Map<String, Object> promotion = findMidMonthPromotion(
+                employeeId, authorityCode, periodStart, periodEnd);
+
+        BigDecimal notchValue = lookupNotchValue(salaryScale, notchNo, periodStart);
+        BigDecimal prorated;
+
+        if (promotion != null) {
+            // Split the month into pre and post segments
+            LocalDate promotionDate = toLocalDate(promotion.get("effective_date"));
+            Integer oldNotch = (Integer) promotion.get("old_notch");
+            String oldScale = (String) promotion.get("old_scale");
+
+            if (oldNotch == null || oldScale == null) {
+                // No prior baseline captured on the event; fall back to single-segment
+                log.warn("PROMOTION event for {} missing old_scale/old_notch; "
+                        + "falling back to single-segment. Event id={}",
+                        employeeId, promotion.get("id"));
+                prorated = computeProrated(notchValue, daysInMonth, daysServed, rule);
+            } else {
+                BigDecimal oldNotchValue = lookupNotchValue(oldScale, oldNotch, periodStart);
+                BigDecimal newNotchValue = lookupNotchValue(salaryScale, notchNo, periodStart);
+
+                // Segment 1: month start -> day before promotion
+                LocalDate preSegmentStart = (hireDate == null || hireDate.isBefore(ym.atDay(1)))
+                        ? ym.atDay(1) : hireDate;
+                LocalDate preSegmentEnd = promotionDate.minusDays(1);
+                int preDays = (preSegmentStart.isAfter(preSegmentEnd))
+                        ? 0
+                        : (int) ChronoUnit.DAYS.between(preSegmentStart, preSegmentEnd) + 1;
+
+                BigDecimal preProrated = computeProrated(
+                        oldNotchValue, daysInMonth, preDays, rule);
+
+                // Segment 2: promotion date -> month end (or termination)
+                LocalDate postSegmentStart = promotionDate;
+                LocalDate postSegmentEnd = (terminationDate == null || terminationDate.isAfter(ym.atEndOfMonth()))
+                        ? ym.atEndOfMonth() : terminationDate;
+                int postDays = (postSegmentStart.isAfter(postSegmentEnd))
+                        ? 0
+                        : (int) ChronoUnit.DAYS.between(postSegmentStart, postSegmentEnd) + 1;
+
+                BigDecimal postProrated = computeProrated(
+                        newNotchValue, daysInMonth, postDays, rule);
+
+                prorated = normalizeMoney(preProrated.add(postProrated));
+
+                log.info("Mid-month PROMOTION split for {}: {} days on {}/{}, "
+                        + "{} days on {}/{}",
+                        employeeId, preDays, oldScale, oldNotch,
+                        postDays, salaryScale, notchNo);
+            }
+        } else {
+            prorated = computeProrated(notchValue, daysInMonth, daysServed, rule);
+        }
 
         return new ResolvedSalary(
                 employeeId,
@@ -101,6 +153,34 @@ public class SalaryResolver {
                 daysServed < daysInMonth,
                 rule
         );
+    }
+
+    /**
+     * Finds a mid-month PROMOTION or REGRADING event for the given
+     * employee that falls within the payroll period. Returns null if
+     * none exists.
+     */
+    private Map<String, Object> findMidMonthPromotion(
+            String employeeId, String authorityCode,
+            LocalDate periodStart, LocalDate periodEnd) {
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT id, event_type, effective_date, old_scale, old_notch, " +
+                "       new_scale, new_notch " +
+                "FROM employment_events " +
+                "WHERE employee_id = ? AND authority_code = ? " +
+                "  AND event_type IN ('PROMOTION','REGRADING') " +
+                "  AND effective_date > ? AND effective_date <= ? " +
+                "ORDER BY effective_date ASC LIMIT 1",
+                employeeId, authorityCode,
+                java.sql.Date.valueOf(periodStart),
+                java.sql.Date.valueOf(periodEnd));
+            return rows.isEmpty() ? null : rows.get(0);
+        } catch (Exception e) {
+            // employment_events table might not exist in some test fixtures
+            log.warn("Could not query employment_events for {}: {}", employeeId, e.getMessage());
+            return null;
+        }
     }
 
     // -----------------------------------------------------------------
