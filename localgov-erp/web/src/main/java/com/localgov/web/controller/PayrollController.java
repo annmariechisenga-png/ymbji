@@ -114,7 +114,7 @@ public class PayrollController {
     @PostMapping("/payslip-reconstruction")
     @Operation(summary = "Reconstruct a historical payslip",
                description = "What should have been paid for the period, based on CA rates effective then")
-    @PreAuthorize("hasAnyRole('ADMIN','PAYROLL','HR','AUDITOR')")
+    @PreAuthorize("hasAnyRole('ADMIN','PAYROLL','HR','AUDITOR','SUPERADMIN')")
     public com.localgov.service.payroll.model.PayslipReconstruction reconstructPayslip(
             @RequestBody PayslipReconstructionRequest request,
             Authentication authentication) {
