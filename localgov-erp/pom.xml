@@ -32,6 +32,16 @@
     <!-- Import Spring Boot BOM to manage dependency versions -->
     <dependencyManagement>
         <dependencies>
+            <!-- Testcontainers BOM override — 1.21.4 supports Docker Engine API 1.44+
+                 (Spring Boot 3.2.5 defaults to 1.19.7 which uses API 1.32 and fails
+                 against Docker Engine 29.x with "Could not find a valid Docker environment") -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>1.21.4</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
