@@ -555,7 +555,7 @@ class Federation2027DryRunTest {
 
     private void runPayrollAsCouncilAdmin(String username, long periodId, String idemKey)
             throws Exception {
-        String body = json.writeValueAsString(new PayrollRunRequest(periodId, idemKey));
+        String body = json.writeValueAsString(new PayrollRunRequest(periodId, idemKey, null, null));
 
         mockMvc.perform(post("/payroll/run")
                 .header("Authorization", "Bearer " + jwtFor(username))

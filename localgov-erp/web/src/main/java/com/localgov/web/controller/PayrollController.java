@@ -68,9 +68,12 @@ public class PayrollController {
     )
     public ResponseEntity<PayrollRunResult> runPayroll(
             @Valid @RequestBody PayrollRunRequest request) {
+        String runType = request.runType() != null ? request.runType() : "REGULAR";
         PayrollRunResult result = payrollEngineService.computePayroll(
             request.payrollPeriodId(),
-            request.idempotencyKey()
+            request.idempotencyKey(),
+            runType,
+            request.originalRunId()
         );
         if (result.isSuccess()) {
             return ResponseEntity.ok(result);

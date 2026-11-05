@@ -48,7 +48,6 @@ import java.util.UUID;
  * only the current tenant's rows are read/written.
  */
 @Service
-@Transactional
 public class PayrollEngineService {
 
     private static final Logger log = LoggerFactory.getLogger(PayrollEngineService.class);
@@ -93,6 +92,11 @@ public class PayrollEngineService {
      *         employees, or any calculation fails
      */
     public PayrollRunResult computePayroll(long payrollPeriodId, String idempotencyKey) {
+        return computePayroll(payrollPeriodId, idempotencyKey, "REGULAR", null);
+    }
+
+    public PayrollRunResult computePayroll(long payrollPeriodId, String idempotencyKey,
+                                            String runType, Long originalRunId) {
 
         // ---- PRE-WRITE SECTION ----------------------------------------
         // Failures here are converted to a failure result rather than
@@ -117,9 +121,10 @@ public class PayrollEngineService {
             periodEnd = toLocalDate(period.get("period_end"));
             Boolean isClosed = (Boolean) period.get("is_closed");
 
-            if (Boolean.TRUE.equals(isClosed)) {
+            if (Boolean.TRUE.equals(isClosed) && !"SUPPLEMENTARY".equals(runType)) {
                 return PayrollRunResult.failure(
-                    cycleCode, "Period " + cycleCode + " is closed");
+                    cycleCode, "Period " + cycleCode + " is closed. "
+                    + "Use runType=SUPPLEMENTARY to run a corrective payroll.");
             }
 
             // 2. Check idempotency
@@ -135,18 +140,27 @@ public class PayrollEngineService {
             return PayrollRunResult.failure(null, e.getMessage());
         }
 
-        // ---- WRITE SECTION --------------------------------------------
-        // From here on, any exception propagates and rolls back the run.
-        // A mid-run failure is a 500, not a 422 — the PROCESSING row
-        // must not survive a crash.
+        // ---- WRITE SECTION (delegated to @Transactional method) ----
+        return executeRun(payrollPeriodId, idempotencyKey, runType, originalRunId,
+                authorityCode, cycleCode, periodStart, periodEnd);
+    }
+
+    @Transactional
+    public PayrollRunResult executeRun(long payrollPeriodId, String idempotencyKey,
+                                        String runType, Long originalRunId,
+                                        String authorityCode, String cycleCode,
+                                        LocalDate periodStart, LocalDate periodEnd) {
 
         // 3. Create run header (PROCESSING)
-        String runCode = "RUN-" + cycleCode + "-" + System.currentTimeMillis();
+        String runCode = "RUN-" + cycleCode + "-" + System.currentTimeMillis()
+                + ("SUPPLEMENTARY".equals(runType) ? "-SUPP" : "");
         Long runId = jdbcTemplate.queryForObject(
             "INSERT INTO erp_payroll_run " +
-            "(run_code, payroll_period_id, run_status, authority_code, idempotency_key, processed_by) " +
-            "VALUES (?, ?, 'PROCESSING', ?, ?, 'PAYROLL_ENGINE') RETURNING id",
-            Long.class, runCode, payrollPeriodId, authorityCode, idempotencyKey);
+            "(run_code, payroll_period_id, run_status, authority_code, idempotency_key, " +
+            " processed_by, run_type, original_run_id) " +
+            "VALUES (?, ?, 'PROCESSING', ?, ?, 'PAYROLL_ENGINE', ?, ?) RETURNING id",
+            Long.class, runCode, payrollPeriodId, authorityCode, idempotencyKey,
+            runType, originalRunId);
 
         // 4. Load active employees for this tenant
         List<Map<String, Object>> employees = jdbcTemplate.queryForList(

@@ -150,7 +150,7 @@ class PayrollControllerIntegrationTest {
     void runPayroll_happyPath() throws Exception {
         String jwt = jwtFor("chilanga.admin");
         String body = json.writeValueAsString(
-            new PayrollRunRequest(periodId, "endpoint-test-key-1"));
+            new PayrollRunRequest(periodId, "endpoint-test-key-1", null, null));
 
         String response = mockMvc.perform(post("/payroll/run")
                         .header("Authorization", "Bearer " + jwt)
@@ -248,7 +248,7 @@ class PayrollControllerIntegrationTest {
     void runPayroll_idempotentReplay() throws Exception {
         String jwt = jwtFor("chilanga.admin");
         String body = json.writeValueAsString(
-            new PayrollRunRequest(periodId, "endpoint-idem-key"));
+            new PayrollRunRequest(periodId, "endpoint-idem-key", null, null));
 
         String r1 = mockMvc.perform(post("/payroll/run")
                         .header("Authorization", "Bearer " + jwt)
@@ -279,7 +279,7 @@ class PayrollControllerIntegrationTest {
     void runPayroll_periodNotFound_returns422() throws Exception {
         String jwt = jwtFor("chilanga.admin");
         String body = json.writeValueAsString(
-            new PayrollRunRequest(999_999L, "endpoint-missing-period"));
+            new PayrollRunRequest(999_999L, "endpoint-missing-period", null, null));
 
         String response = mockMvc.perform(post("/payroll/run")
                         .header("Authorization", "Bearer " + jwt)
@@ -304,7 +304,7 @@ class PayrollControllerIntegrationTest {
     @DisplayName("Unauthenticated request is rejected")
     void runPayroll_unauthenticated_rejected() throws Exception {
         String body = json.writeValueAsString(
-            new PayrollRunRequest(periodId, "endpoint-noauth"));
+            new PayrollRunRequest(periodId, "endpoint-noauth", null, null));
 
         mockMvc.perform(post("/payroll/run")
                         .contentType(MediaType.APPLICATION_JSON)
