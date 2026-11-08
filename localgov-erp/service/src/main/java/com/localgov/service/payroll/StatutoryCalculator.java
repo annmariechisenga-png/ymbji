@@ -270,7 +270,22 @@ public class StatutoryCalculator {
                 break;
             }
             BigDecimal top = (to == null) ? taxableGross : taxableGross.min(to);
-            BigDecimal bandAmount = top.subtract(from).add(BigDecimal.ONE);
+            BigDecimal bandAmount = top.subtract(from);
+
+            // Band boundaries use two conventions in the compliance_rule table:
+            //  - 2023-2025: integer jumps (from: 5101) — bands end at the
+            //    previous band's `to` + 1, so the true slice is (top - from + 1).
+            //  - 2026-2027: ZRA .01 decimal boundaries (from: 5100.01) — the
+            //    true slice is (top - from + 0.01).
+            // Both conventions represent the same K2,000.00 slices; only the
+            // representation of the lower boundary differs.
+            if (from.signum() > 0) {
+                BigDecimal adjustment = (from.stripTrailingZeros().scale() <= 0)
+                        ? BigDecimal.ONE
+                        : new BigDecimal("0.01");
+                bandAmount = bandAmount.add(adjustment);
+            }
+
             if (bandAmount.signum() <= 0) {
                 continue;
             }

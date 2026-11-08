@@ -27,12 +27,16 @@ class StatutoryCalculatorTest {
     private static final int PERIOD_YEAR = 2026;
 
     // Reusable rule JSON fragments
+    // 2026 ZRA PAYE bands — matches compliance_rule PAYE_BANDS
+    // published on the ZRA website. Boundaries use the .01 decimal
+    // transition (e.g. 5100.01) per ZRA's "Next K5,100.01 but not
+    // exceeding K7,100.00" wording.
     private static final String PAYE_BANDS_JSON = """
         {"bands":[
-            {"from":0,"to":5100,"rate":0.00},
-            {"from":5101,"to":7100,"rate":0.25},
-            {"from":7101,"to":9900,"rate":0.30},
-            {"from":9901,"to":null,"rate":0.375}
+            {"from":0.00,"to":5100.00,"rate":0.00},
+            {"from":5100.01,"to":7100.00,"rate":0.20},
+            {"from":7100.01,"to":9200.00,"rate":0.30},
+            {"from":9200.01,"to":null,"rate":0.37}
         ]}
         """;
 
@@ -95,15 +99,17 @@ class StatutoryCalculatorTest {
         assertThat(result.grzFuneralEmployee()).isEqualByComparingTo("32.00");
         assertThat(result.grzFuneralEmployer()).isEqualByComparingTo("48.00");
 
-        // Taxable gross = 10000 - 500.00 = 9500.00
+        // Taxable gross = 10000.00 (NAPSA does NOT reduce taxable gross;
+        // only Housing allowance is silently exempt per Local Authority practice)
         assertThat(result.taxableGross()).isEqualByComparingTo("10000.00");
 
-        // PAYE on 9500.00 (2026 bands): 0 + 500 + 720 = 1220.00
-        //   0-5100 @ 0%        = 0
-        //   5101-7100 @ 25%    = 2000 * 0.25 = 500
-        //   7101-9813.82 @ 30% = 2713.82 * 0.30 = 814.15
-        //   Total = 1314.15
-        assertThat(result.paye()).isEqualByComparingTo("1377.50");
+        // PAYE on 10000.00 (2026 ZRA bands):
+        //   0-5100 @ 0%           = 0
+        //   5100.01-7100 @ 20%    = 2000.00 * 0.20 = 400.00
+        //   7100.01-9200 @ 30%    = 2100.00 * 0.30 = 630.00
+        //   9200.01-10000 @ 37%   = 800.00 * 0.37  = 296.00
+        //   Total = 1326.00
+        assertThat(result.paye()).isEqualByComparingTo("1326.00");
 
         // LASF amounts are zero
         assertThat(result.lasfEmployee()).isEqualByComparingTo("0");
@@ -147,16 +153,17 @@ class StatutoryCalculatorTest {
         // Funeral = 0.4% * 13062.39 = 52.25
         assertThat(result.grzFuneralEmployee()).isEqualByComparingTo("52.25");
 
-        // Taxable gross = (13062.39 + 7837.44) - 1306.24 = 19593.59
+        // Taxable gross = 13062.39 + 7837.44 = 20899.83
+        // (NAPSA/LASF do not reduce taxable gross)
         assertThat(result.taxableGross()).isEqualByComparingTo("20899.83");
 
-        // PAYE on 19593.59:
-        //   0-5100 @ 0%        = 0
-        //   5101-7100 @ 25%    = 500
-        //   7101-9900 @ 30%    = 840
-        //   9901-19593.59 @ 37.5% = 9693.59 * 0.375 = 3635.10
-        //   Total = 4975.10
-        assertThat(result.paye()).isEqualByComparingTo("5464.94");
+        // PAYE on 20899.83 (2026 ZRA bands):
+        //   0-5100 @ 0%              = 0
+        //   5100.01-7100 @ 20%       = 2000.00 * 0.20 = 400.00
+        //   7100.01-9200 @ 30%       = 2100.00 * 0.30 = 630.00
+        //   9200.01-20899.83 @ 37%   = 11699.83 * 0.37 = 4328.94
+        //   Total = 5358.94
+        assertThat(result.paye()).isEqualByComparingTo("5358.94");
     }
 
     // -----------------------------------------------------------------
