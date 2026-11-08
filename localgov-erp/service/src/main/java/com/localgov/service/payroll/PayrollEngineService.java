@@ -55,6 +55,7 @@ public class PayrollEngineService {
     private static final RoundingMode MONEY_ROUNDING = RoundingMode.HALF_UP;
 
     private final JdbcTemplate jdbcTemplate;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     private final SalaryResolver salaryResolver;
     private final AllowanceCalculator allowanceCalculator;
     private final StatutoryCalculator statutoryCalculator;
@@ -64,6 +65,7 @@ public class PayrollEngineService {
     private final PayrollAdjustmentRepository payrollAdjustmentRepository;
 
     public PayrollEngineService(JdbcTemplate jdbcTemplate,
+                                com.fasterxml.jackson.databind.ObjectMapper objectMapper,
                                 SalaryResolver salaryResolver,
                                 AllowanceCalculator allowanceCalculator,
                                 StatutoryCalculator statutoryCalculator,
@@ -72,6 +74,7 @@ public class PayrollEngineService {
                                 SalaryAdvanceSourcer salaryAdvanceSourcer,
                                 PayrollAdjustmentRepository payrollAdjustmentRepository) {
         this.jdbcTemplate = jdbcTemplate;
+        this.objectMapper = objectMapper;
         this.salaryResolver = salaryResolver;
         this.allowanceCalculator = allowanceCalculator;
         this.statutoryCalculator = statutoryCalculator;
@@ -320,25 +323,90 @@ public class PayrollEngineService {
                 // 5e. Gross including overtime + back-pay
                 BigDecimal gross = salary.proratedBasic().add(taxableNonBasic);
 
-                // 5f. Total deductions
+                // 5f. Total statutory deductions
                 BigDecimal totalDeductions = statutory.totalEmployeeDeductions();
 
-                // 5g. Salary advance deduction (from HR workflow)
-                SalaryAdvanceSourcer.Aggregate salAdv = salAdvByEmployee.get(employeeId);
-                BigDecimal salaryAdvanceAmount = salAdv != null
-                    ? salAdv.totalAmount() : BigDecimal.ZERO;
-                if (salAdv != null) {
-                    allSalaryAdvanceIds.addAll(salAdv.installmentIds());
+                // 5f.2 V172: Third-Party Recurring Deductions
+                // (Union (UNION_DUES), GRZ Parent Cover, ZSIC — from employee_recurring_deduction)
+                java.util.List<java.util.Map<String, Object>> tpRows = jdbcTemplate.queryForList(
+                    "SELECT d.id, p.payee_code, p.payee_name, d.deduction_code, " +
+                    "       d.amount_per_period, d.parent_cover_tier, d.start_date " +
+                    "FROM employee_recurring_deduction d " +
+                    "JOIN third_party_payee p ON p.id = d.payee_id " +
+                    "WHERE d.employee_id = ? AND d.authority_code = ? " +
+                    "  AND d.is_active = TRUE " +
+                    "  AND d.start_date <= ? " +
+                    "  AND (d.end_date IS NULL OR d.end_date >= ?)",
+                    employeeId, authorityCode,
+                    java.sql.Date.valueOf(periodEnd), java.sql.Date.valueOf(periodStart));
+
+                java.math.BigDecimal tpTotal = java.math.BigDecimal.ZERO;
+                java.util.List<java.util.Map<String, Object>> tpResolved = new java.util.ArrayList<>();
+
+                // Load GRZ parent cover tier rates
+                java.util.Map<String, java.math.BigDecimal> grzRates = new java.util.HashMap<>();
+                try {
+                    String grzJson = jdbcTemplate.queryForObject(
+                        "SELECT parameters::text FROM compliance_rule " +
+                        "WHERE rule_code = 'GRZ_PARENT_COVER_RATES' AND scope = 'NATIONAL' " +
+                        "  AND effective_from <= ? AND (effective_to IS NULL OR effective_to >= ?) " +
+                        "ORDER BY effective_from DESC LIMIT 1",
+                        String.class,
+                        java.sql.Date.valueOf(periodStart), java.sql.Date.valueOf(periodStart));
+                    if (grzJson != null) {
+                        com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(grzJson);
+                        node.fieldNames().forEachRemaining(key ->
+                            grzRates.put(key, new java.math.BigDecimal(node.get(key).asText())));
+                    }
+                } catch (Exception e) {
+                    log.warn("Could not load GRZ_PARENT_COVER_RATES", e);
                 }
 
-                // Net = gross - statutory deductions - salary advance
-                BigDecimal netPay = gross.subtract(totalDeductions).subtract(salaryAdvanceAmount);
+                for (java.util.Map<String, Object> tp : tpRows) {
+                    String code = (String) tp.get("deduction_code");
+                    String payee = (String) tp.get("payee_code");
+                    java.math.BigDecimal amt = (java.math.BigDecimal) tp.get("amount_per_period");
+                    java.math.BigDecimal resolvedAmt;
+
+                    if ("GRZ_FUNERAL_PARENT_COVER".equals(code)
+                            || "GRZ_FUNERAL_PARENT_COVER".equals(payee)) {
+                        String tier = (String) tp.get("parent_cover_tier");
+                        java.math.BigDecimal pct = tier != null ? grzRates.get(tier) : null;
+                        if (pct == null) {
+                            log.warn("GRZ Parent Cover for {} has no valid tier ({}). Skipping.",
+                                employeeId, tier);
+                            continue;
+                        }
+                        resolvedAmt = salary.proratedBasic()
+                            .multiply(pct)
+                            .divide(new java.math.BigDecimal("100"), 2,
+                                    java.math.RoundingMode.HALF_UP);
+                    } else {
+                        resolvedAmt = amt != null ? amt : java.math.BigDecimal.ZERO;
+                    }
+
+                    if (resolvedAmt.signum() > 0) {
+                        tpTotal = tpTotal.add(resolvedAmt);
+                        java.util.Map<String, Object> copy = new java.util.HashMap<>(tp);
+                        copy.put("resolved_amount", resolvedAmt);
+                        tpResolved.add(copy);
+                    }
+                }
+
+                // 5g. Salary advance deduction
+                SalaryAdvanceSourcer.Aggregate salAdv = salAdvByEmployee.get(employeeId);
+                BigDecimal salaryAdvanceAmount = salAdv != null ? salAdv.totalAmount() : BigDecimal.ZERO;
+                if (salAdv != null) allSalaryAdvanceIds.addAll(salAdv.installmentIds());
+
+                // Net = gross - statutory - salary advance - third-party
+                BigDecimal netPay = gross.subtract(totalDeductions).subtract(salaryAdvanceAmount).subtract(tpTotal);
 
                 // 5g. Persist erp_payroll_run_item and erp_payroll_run_item_line
                 PayslipPersister.PendingPayslip pp = payslipPersister.persistItemAndLines(
                     runId, authorityCode, runCode, employeeId, employeeName,
                     salary, allowances, statutory, gross, totalDeductions, netPay,
-                    periodStart, periodEnd, overtimeAmount, salaryAdvanceAmount, backPayAmount);
+                    periodStart, periodEnd, overtimeAmount, salaryAdvanceAmount, backPayAmount,
+                    tpResolved);
 
                 // Track this employee's pending adjustments for post-run marking
                 pendingAdjustments.addAll(empAdjustments);

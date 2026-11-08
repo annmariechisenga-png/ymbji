@@ -75,7 +75,8 @@ public class PayslipPersister {
             java.time.LocalDate periodEnd,
             BigDecimal overtimeAmount,
             BigDecimal salaryAdvanceAmount,
-            BigDecimal backPayAmount) {
+            BigDecimal backPayAmount,
+            java.util.List<java.util.Map<String, Object>> thirdPartyDeductions) {
 
         BigDecimal allowancesTotal = allowances.stream()
             .map(AllowanceLine::amount)
@@ -130,7 +131,7 @@ public class PayslipPersister {
         insertLine(runItemId, authorityCode, "NHIMA_EMPLOYEE", "DEDUCTION",
             "NHIMA (Employee)", statutory.nhimaEmployee(), 30, "NHIMA_RATE");
         insertLine(runItemId, authorityCode, "GRZ_FUNERAL_EMPLOYEE", "DEDUCTION",
-            "GRZ Funeral Scheme (Employee)", statutory.grzFuneralEmployee(), 40, "GRZ_FUNERAL");
+            "GRZ Funeral Scheme (Base)", statutory.grzFuneralEmployee(), 40, "GRZ_FUNERAL");
 
         // Salary advance deduction (HR-sourced from salary_advance_deduction).
         if (salaryAdvanceAmount != null && salaryAdvanceAmount.signum() > 0) {
@@ -162,6 +163,23 @@ public class PayslipPersister {
         // hashing non-deterministic. Hashing the data makes the hash
         // stable across renderer versions and reproducible across runs.
         String pdfHash = sha256(canonicalPayslip(payslipData));
+
+        // V172: Third-party deductions (Union, ZSIC, GRZ Parent Cover, Bank Loan)
+        if (thirdPartyDeductions != null) {
+            int tpOrder = 100;
+            for (java.util.Map<String, Object> tp : thirdPartyDeductions) {
+                // Use deduction_code (UNION_SUBSCRIPTION), not payee_code (ZULAWU) —
+                // the payslip line_type FK references payroll_line_code.line_code.
+                String code = (String) tp.get("deduction_code");
+                if (code == null) code = (String) tp.get("payee_code"); // fallback
+                String name = (String) tp.get("payee_name");
+                java.math.BigDecimal amt = (java.math.BigDecimal) tp.get("resolved_amount");
+                
+                insertLine(runItemId, authorityCode, code, "DEDUCTION",
+                    name, amt, tpOrder, null);
+                tpOrder += 10;
+            }
+        }
 
         return new PendingPayslip(
             authorityCode, employeeId, runItemId,
