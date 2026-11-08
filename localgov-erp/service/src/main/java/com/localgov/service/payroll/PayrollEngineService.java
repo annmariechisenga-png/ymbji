@@ -294,12 +294,21 @@ public class PayrollEngineService {
                 BigDecimal overtimeAmount = otAggregate != null
                     ? otAggregate.totalAmount() : BigDecimal.ZERO;
 
-                // 5c.5 Back-pay: sum pending EARNING adjustments for this employee
+                // 5c.5 Fetch pending adjustments (both directions)
                 java.util.List<com.localgov.domain.model.PayrollAdjustment> empAdjustments =
                     payrollAdjustmentRepository.findByEmployeeIdAndStatus(
                         employeeId, com.localgov.domain.model.PayrollAdjustmentStatus.PENDING);
+
+                // EARNING adjustments (back-pay, acting arrears, etc.)
                 BigDecimal backPayAmount = empAdjustments.stream()
                     .filter(a -> a.getDirection() == com.localgov.domain.model.PayrollAdjustmentDirection.EARNING)
+                    .map(com.localgov.domain.model.PayrollAdjustment::getAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                // DEDUCTION adjustments (overpayment recovery, surcharge, etc.)
+                // Subtracted from net pay AFTER tax — they do not reduce taxable gross.
+                BigDecimal adjustmentDeductionAmount = empAdjustments.stream()
+                    .filter(a -> a.getDirection() == com.localgov.domain.model.PayrollAdjustmentDirection.DEDUCTION)
                     .map(com.localgov.domain.model.PayrollAdjustment::getAmount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -429,14 +438,23 @@ public class PayrollEngineService {
                 if (salAdv != null) allSalaryAdvanceIds.addAll(salAdv.installmentIds());
 
                 // Net = gross - statutory - salary advance - third-party
-                BigDecimal netPay = gross.subtract(totalDeductions).subtract(salaryAdvanceAmount).subtract(tpTotal);
+                // Net = gross - statutory deductions - salary advance - third-party - adjustment deductions
+                // (adjustmentDeductionAmount includes overpayment recovery, and later surcharge, etc.)
+                BigDecimal netPay = gross
+                    .subtract(totalDeductions)
+                    .subtract(salaryAdvanceAmount)
+                    .subtract(tpTotal)
+                    .subtract(adjustmentDeductionAmount);
 
                 // 5g. Persist erp_payroll_run_item and erp_payroll_run_item_line
                 PayslipPersister.PendingPayslip pp = payslipPersister.persistItemAndLines(
                     runId, authorityCode, runCode, employeeId, employeeName,
                     salary, allowances, statutory, gross, totalDeductions, netPay,
                     periodStart, periodEnd, overtimeAmount, salaryAdvanceAmount, backPayAmount,
-                    tpResolved, commutationAmount);
+                    tpResolved, commutationAmount,
+                    empAdjustments.stream()
+                        .filter(a -> a.getDirection() == com.localgov.domain.model.PayrollAdjustmentDirection.DEDUCTION)
+                        .toList());
 
                 // V176: mark the commutation inputs as PROCESSED
                 for (Long inputId : commutationInputIds) {

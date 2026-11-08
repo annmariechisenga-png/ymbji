@@ -77,11 +77,11 @@ public class PayslipPersister {
             BigDecimal salaryAdvanceAmount,
             BigDecimal backPayAmount,
             java.util.List<java.util.Map<String, Object>> thirdPartyDeductions) {
-        // Backward-compatible overload — commutation defaults to zero.
+        // Backward-compatible overload — commutation and deductions default to empty.
         return persistItemAndLines(payrollRunId, authorityCode, runCode, employeeId, employeeName,
             salary, allowances, statutory, gross, totalDeductions, netPay,
             periodStart, periodEnd, overtimeAmount, salaryAdvanceAmount, backPayAmount,
-            thirdPartyDeductions, java.math.BigDecimal.ZERO);
+            thirdPartyDeductions, java.math.BigDecimal.ZERO, java.util.List.of());
     }
 
     public PendingPayslip persistItemAndLines(
@@ -103,6 +103,33 @@ public class PayslipPersister {
             BigDecimal backPayAmount,
             java.util.List<java.util.Map<String, Object>> thirdPartyDeductions,
             java.math.BigDecimal commutationAmount) {
+        // Backward-compatible overload — deductions default to empty.
+        return persistItemAndLines(payrollRunId, authorityCode, runCode, employeeId, employeeName,
+            salary, allowances, statutory, gross, totalDeductions, netPay,
+            periodStart, periodEnd, overtimeAmount, salaryAdvanceAmount, backPayAmount,
+            thirdPartyDeductions, commutationAmount, java.util.List.of());
+    }
+
+    public PendingPayslip persistItemAndLines(
+            Long payrollRunId,
+            String authorityCode,
+            String runCode,
+            String employeeId,
+            String employeeName,
+            ResolvedSalary salary,
+            List<AllowanceLine> allowances,
+            StatutoryDeductions statutory,
+            BigDecimal gross,
+            BigDecimal totalDeductions,
+            BigDecimal netPay,
+            java.time.LocalDate periodStart,
+            java.time.LocalDate periodEnd,
+            BigDecimal overtimeAmount,
+            BigDecimal salaryAdvanceAmount,
+            BigDecimal backPayAmount,
+            java.util.List<java.util.Map<String, Object>> thirdPartyDeductions,
+            java.math.BigDecimal commutationAmount,
+            java.util.List<com.localgov.domain.model.PayrollAdjustment> deductionAdjustments) {
 
         BigDecimal allowancesTotal = allowances.stream()
             .map(AllowanceLine::amount)
@@ -194,6 +221,23 @@ public class PayslipPersister {
         if (commutationAmount != null && commutationAmount.signum() > 0) {
             insertLine(runItemId, authorityCode, "LEAVE_COMMUTATION", "EARNING",
                 "Leave Commutation", commutationAmount, 125, null);
+        }
+
+        // V177: Deduction adjustments (overpayment recovery, and future surcharge, etc.)
+        if (deductionAdjustments != null) {
+            int adjOrder = 20;
+            for (com.localgov.domain.model.PayrollAdjustment adj : deductionAdjustments) {
+                String lineCode = adj.getAdjustmentType().name();
+                // Friendly label by name — no enum switch needed, works for any type
+                String lineName = switch (lineCode) {
+                    case "OVERPAYMENT_RECOVERY" -> "Overpayment Recovery";
+                    case "SURCHARGE" -> "Surcharge";
+                    default -> "Adjustment Deduction";
+                };
+                insertLine(runItemId, authorityCode, lineCode, "DEDUCTION",
+                    lineName, adj.getAmount(), adjOrder, null);
+                adjOrder += 5;
+            }
         }
 
         // V172: Third-party deductions (Union, ZSIC, GRZ Parent Cover, Bank Loan)
