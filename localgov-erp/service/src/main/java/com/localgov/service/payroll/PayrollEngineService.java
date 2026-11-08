@@ -296,8 +296,11 @@ public class PayrollEngineService {
 
                 // 5c.5 Fetch pending adjustments (both directions)
                 java.util.List<com.localgov.domain.model.PayrollAdjustment> empAdjustments =
-                    payrollAdjustmentRepository.findByEmployeeIdAndStatus(
-                        employeeId, com.localgov.domain.model.PayrollAdjustmentStatus.PENDING);
+                    payrollAdjustmentRepository.findApplicableForPeriod(
+                        employeeId, 
+                        com.localgov.domain.model.PayrollAdjustmentStatus.PENDING,
+                        periodStart, 
+                        periodEnd);
 
                 // EARNING adjustments (back-pay, acting arrears, etc.)
                 BigDecimal backPayAmount = empAdjustments.stream()

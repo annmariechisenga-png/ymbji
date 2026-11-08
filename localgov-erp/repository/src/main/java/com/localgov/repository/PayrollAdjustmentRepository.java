@@ -50,4 +50,29 @@ public interface PayrollAdjustmentRepository extends JpaRepository<PayrollAdjust
      */
     List<PayrollAdjustment> findByRetroactiveEventIdAndAuthorityCodeOrderByEmployeeIdAsc(
             Long retroactiveEventId, String authorityCode);
+
+    /**
+     * Fetch PENDING adjustments that apply to a specific payroll period.
+     * 
+     * EARNING adjustments (back-pay, arrears) apply regardless of period
+     * because they are compensating for past periods and are paid now.
+     * 
+     * DEDUCTION adjustments (overpayment, surcharge) apply only if their
+     * period_from/period_to window intersects the current payroll period,
+     * allowing multi-installment recovery (e.g., K1,000/month for 5 months).
+     */
+    @Query("SELECT a FROM PayrollAdjustment a " +
+           "WHERE a.employeeId = :employeeId " +
+           "  AND a.status = :status " +
+           "  AND (" +
+           "    a.direction = com.localgov.domain.model.PayrollAdjustmentDirection.EARNING " +
+           "    OR (a.periodFrom IS NULL AND a.periodTo IS NULL) " +
+           "    OR (a.periodFrom <= :periodEnd AND a.periodTo >= :periodStart)" +
+           "  )")
+    List<PayrollAdjustment> findApplicableForPeriod(
+            @Param("employeeId") String employeeId,
+            @Param("status") PayrollAdjustmentStatus status,
+            @Param("periodStart") java.time.LocalDate periodStart,
+            @Param("periodEnd") java.time.LocalDate periodEnd);
+
 }
