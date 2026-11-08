@@ -315,13 +315,43 @@ public class PayrollEngineService {
                     .findFirst()
                     .orElse(BigDecimal.ZERO);
 
-                // 5d. Compute statutory on the full taxable base
+                // 5d. V176: Fetch VERIFIED commutation inputs for this period.
+                // Commutation is a quantity-based input — (prorated basic / 22) * days.
+                // It is taxable, so it must be added to taxableNonBasic BEFORE
+                // statutory compute, and the PAYE/NAPSA/NHIMA on it is
+                // automatically recalculated by the calculator.
+                java.util.List<java.util.Map<String, Object>> commutationInputs = jdbcTemplate.queryForList(
+                    "SELECT id, quantity, unit " +
+                    "FROM payroll_input " +
+                    "WHERE employee_id = ? AND authority_code = ? " +
+                    "  AND target_period_id = ? " +
+                    "  AND input_type = 'LEAVE_COMMUTATION' " +
+                    "  AND status = 'VERIFIED'",
+                    employeeId, authorityCode, payrollPeriodId);
+
+                BigDecimal commutationAmount = BigDecimal.ZERO;
+                java.util.List<Long> commutationInputIds = new java.util.ArrayList<>();
+                for (java.util.Map<String, Object> inp : commutationInputs) {
+                    BigDecimal days = (BigDecimal) inp.get("quantity");
+                    if (days == null || days.signum() <= 0) continue;
+                    // Commutation = (prorated basic / 22) * days
+                    BigDecimal dailyRate = salary.proratedBasic()
+                        .divide(new BigDecimal("22"), 6, java.math.RoundingMode.HALF_UP);
+                    commutationAmount = commutationAmount.add(
+                        dailyRate.multiply(days).setScale(2, java.math.RoundingMode.HALF_UP));
+                    commutationInputIds.add(((Number) inp.get("id")).longValue());
+                }
+
+                // Add commutation to taxableNonBasic (it is a taxable earning)
+                BigDecimal taxableNonBasicWithCommutation = taxableNonBasic.add(commutationAmount);
+
+                // 5d.1 Compute statutory on the full taxable base (including commutation)
                 StatutoryDeductions statutory = statutoryCalculator.compute(
                     employeeId, authorityCode, salary, periodStart, periodYear,
-                    taxableNonBasic, housingAllowanceAmount);
+                    taxableNonBasicWithCommutation, housingAllowanceAmount);
 
-                // 5e. Gross including overtime + back-pay
-                BigDecimal gross = salary.proratedBasic().add(taxableNonBasic);
+                // 5e. Gross including overtime + back-pay + commutation
+                BigDecimal gross = salary.proratedBasic().add(taxableNonBasicWithCommutation);
 
                 // 5f. Total statutory deductions
                 BigDecimal totalDeductions = statutory.totalEmployeeDeductions();
@@ -406,7 +436,14 @@ public class PayrollEngineService {
                     runId, authorityCode, runCode, employeeId, employeeName,
                     salary, allowances, statutory, gross, totalDeductions, netPay,
                     periodStart, periodEnd, overtimeAmount, salaryAdvanceAmount, backPayAmount,
-                    tpResolved);
+                    tpResolved, commutationAmount);
+
+                // V176: mark the commutation inputs as PROCESSED
+                for (Long inputId : commutationInputIds) {
+                    jdbcTemplate.update(
+                        "UPDATE payroll_input SET status = 'PROCESSED', updated_at = NOW() WHERE id = ?",
+                        inputId);
+                }
 
                 // Track this employee's pending adjustments for post-run marking
                 pendingAdjustments.addAll(empAdjustments);

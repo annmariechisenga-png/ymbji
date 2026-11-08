@@ -77,6 +77,32 @@ public class PayslipPersister {
             BigDecimal salaryAdvanceAmount,
             BigDecimal backPayAmount,
             java.util.List<java.util.Map<String, Object>> thirdPartyDeductions) {
+        // Backward-compatible overload — commutation defaults to zero.
+        return persistItemAndLines(payrollRunId, authorityCode, runCode, employeeId, employeeName,
+            salary, allowances, statutory, gross, totalDeductions, netPay,
+            periodStart, periodEnd, overtimeAmount, salaryAdvanceAmount, backPayAmount,
+            thirdPartyDeductions, java.math.BigDecimal.ZERO);
+    }
+
+    public PendingPayslip persistItemAndLines(
+            Long payrollRunId,
+            String authorityCode,
+            String runCode,
+            String employeeId,
+            String employeeName,
+            ResolvedSalary salary,
+            List<AllowanceLine> allowances,
+            StatutoryDeductions statutory,
+            BigDecimal gross,
+            BigDecimal totalDeductions,
+            BigDecimal netPay,
+            java.time.LocalDate periodStart,
+            java.time.LocalDate periodEnd,
+            BigDecimal overtimeAmount,
+            BigDecimal salaryAdvanceAmount,
+            BigDecimal backPayAmount,
+            java.util.List<java.util.Map<String, Object>> thirdPartyDeductions,
+            java.math.BigDecimal commutationAmount) {
 
         BigDecimal allowancesTotal = allowances.stream()
             .map(AllowanceLine::amount)
@@ -163,6 +189,12 @@ public class PayslipPersister {
         // hashing non-deterministic. Hashing the data makes the hash
         // stable across renderer versions and reproducible across runs.
         String pdfHash = sha256(canonicalPayslip(payslipData));
+
+        // V176: Leave Commutation (taxable earning, calculated at (basic/22)*days)
+        if (commutationAmount != null && commutationAmount.signum() > 0) {
+            insertLine(runItemId, authorityCode, "LEAVE_COMMUTATION", "EARNING",
+                "Leave Commutation", commutationAmount, 125, null);
+        }
 
         // V172: Third-party deductions (Union, ZSIC, GRZ Parent Cover, Bank Loan)
         if (thirdPartyDeductions != null) {
