@@ -232,6 +232,7 @@ public class PayslipPersister {
                 String lineName = switch (lineCode) {
                     case "OVERPAYMENT_RECOVERY" -> "Overpayment Recovery";
                     case "SURCHARGE" -> "Surcharge";
+                    case "PUNITIVE_SUSPENSION" -> "Punitive Suspension Deduction";
                     default -> "Adjustment Deduction";
                 };
                 insertLine(runItemId, authorityCode, lineCode, "DEDUCTION",
