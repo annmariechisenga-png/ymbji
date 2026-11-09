@@ -181,6 +181,12 @@ public class PayslipPersister {
             statutory.contributionScheme() + " (Employee)",
             statutory.contributionScheme().equals("NAPSA") ? statutory.napsaEmployee() : statutory.lasfEmployee(),
             20, statutory.contributionScheme() + "_RATE");
+
+        if (statutory.lasfOccupationalEmployee().signum() > 0) {
+            insertLine(runItemId, authorityCode, "LASF_OCCUPATIONAL_EMPLOYEE",
+                "DEDUCTION", "LASF Occupational (Employee)",
+                statutory.lasfOccupationalEmployee(), 35, "LASF_OCCUPATIONAL_RATE");
+        }
         insertLine(runItemId, authorityCode, "NHIMA_EMPLOYEE", "DEDUCTION",
             "NHIMA (Employee)", statutory.nhimaEmployee(), 30, "NHIMA_RATE");
         insertLine(runItemId, authorityCode, "GRZ_FUNERAL_EMPLOYEE", "DEDUCTION",
@@ -198,6 +204,12 @@ public class PayslipPersister {
             statutory.contributionScheme() + " (Employer)",
             statutory.contributionScheme().equals("NAPSA") ? statutory.napsaEmployer() : statutory.lasfEmployer(),
             10, statutory.contributionScheme() + "_RATE");
+
+        if (statutory.lasfOccupationalEmployer().signum() > 0) {
+            insertLine(runItemId, authorityCode, "LASF_OCCUPATIONAL_EMPLOYER",
+                "EMPLOYER_CONTRIB", "LASF Occupational (Employer)",
+                statutory.lasfOccupationalEmployer(), 25, "LASF_OCCUPATIONAL_RATE");
+        }
         insertLine(runItemId, authorityCode, "NHIMA_EMPLOYER", "EMPLOYER_CONTRIB",
             "NHIMA (Employer)", statutory.nhimaEmployer(), 20, "NHIMA_RATE");
         insertLine(runItemId, authorityCode, "GRZ_FUNERAL_EMPLOYER", "EMPLOYER_CONTRIB",
@@ -381,6 +393,12 @@ public class PayslipPersister {
             isNapsa ? "NAPSA_EMPLOYEE" : "LASF_EMPLOYEE",
             statutory.contributionScheme() + " (Employee)",
             normalize(isNapsa ? statutory.napsaEmployee() : statutory.lasfEmployee())));
+        if (statutory.lasfOccupationalEmployee().signum() > 0) {
+            deductions.add(new PayslipData.Line(
+                "LASF_OCCUPATIONAL_EMPLOYEE",
+                "LASF Occupational (Employee)",
+                normalize(statutory.lasfOccupationalEmployee())));
+        }
         deductions.add(new PayslipData.Line("NHIMA_EMPLOYEE", "NHIMA (Employee)",
             normalize(statutory.nhimaEmployee())));
         deductions.add(new PayslipData.Line("GRZ_FUNERAL_EMPLOYEE",
@@ -395,6 +413,12 @@ public class PayslipPersister {
             isNapsa ? "NAPSA_EMPLOYER" : "LASF_EMPLOYER",
             statutory.contributionScheme() + " (Employer)",
             normalize(isNapsa ? statutory.napsaEmployer() : statutory.lasfEmployer())));
+        if (statutory.lasfOccupationalEmployer().signum() > 0) {
+            employer.add(new PayslipData.Line(
+                "LASF_OCCUPATIONAL_EMPLOYER",
+                "LASF Occupational (Employer)",
+                normalize(statutory.lasfOccupationalEmployer())));
+        }
         employer.add(new PayslipData.Line("NHIMA_EMPLOYER", "NHIMA (Employer)",
             normalize(statutory.nhimaEmployer())));
         employer.add(new PayslipData.Line("GRZ_FUNERAL_EMPLOYER",

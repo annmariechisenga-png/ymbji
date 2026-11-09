@@ -146,6 +146,27 @@ public class StatutoryCalculator {
             taxableGross = normalize(taxableGross.subtract(housingAllowanceAmount));
         }
 
+        BigDecimal lasfOccupationalEmployee = BigDecimal.ZERO;
+        BigDecimal lasfOccupationalEmployer = BigDecimal.ZERO;
+        try {
+            JsonNode occRule = loadRule("LASF_OCCUPATIONAL_RATE", periodStart);
+            if (occRule != null) {
+                BigDecimal empRate = rate(occRule, "employee_rate");
+                BigDecimal erRate = rate(occRule, "employer_rate");
+                BigDecimal occGross = basic.add(grossAllowances);
+                lasfOccupationalEmployee = normalize(occGross.multiply(empRate));
+                lasfOccupationalEmployer = normalize(occGross.multiply(erRate));
+                log.info("LASF_OCCUPATIONAL loaded for {}: empRate={}, erRate={}, occGross={}, empAmt={}, erAmt={}",
+                    periodStart, empRate, erRate, occGross, lasfOccupationalEmployee, lasfOccupationalEmployer);
+            } else {
+                log.info("LASF_OCCUPATIONAL rule returned null for period {}", periodStart);
+            }
+        } catch (PayrollEngineException e) {
+            // Rule not effective pre-2027 — expected, log at DEBUG to avoid log spam
+            log.debug("LASF_OCCUPATIONAL rule not found for period {} (expected pre-2027)",
+                periodStart);
+        }
+
         BigDecimal paye = computePaye(taxableGross, loadRule("PAYE_BANDS", periodStart));
 
         // -------- Personal Levy (Cap 329) --------
@@ -179,6 +200,8 @@ public class StatutoryCalculator {
                 personalLevyEmployer,
                 funeralEmployee,
                 funeralEmployer,
+                lasfOccupationalEmployee,
+                lasfOccupationalEmployer,
                 lasfScheme ? "LASF" : "NAPSA"
         );
     }

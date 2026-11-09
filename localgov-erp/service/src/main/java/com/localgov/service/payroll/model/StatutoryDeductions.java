@@ -39,6 +39,8 @@ public record StatutoryDeductions(
         BigDecimal personalLevyEmployer,
         BigDecimal grzFuneralEmployee,
         BigDecimal grzFuneralEmployer,
+        BigDecimal lasfOccupationalEmployee,
+        BigDecimal lasfOccupationalEmployer,
         String contributionScheme
 ) {
     /** Total employee-side statutory deductions (PAYE + scheme + NHIMA + Funeral). */
@@ -48,7 +50,8 @@ public record StatutoryDeductions(
              .add(lasfEmployee)
              .add(nhimaEmployee)
              .add(personalLevyEmployee)
-             .add(grzFuneralEmployee);
+             .add(grzFuneralEmployee)
+             .add(lasfOccupationalEmployee);
     }
 
     /** Total employer contributions (scheme + NHIMA + Funeral). */
@@ -57,6 +60,7 @@ public record StatutoryDeductions(
              .add(lasfEmployer)
              .add(nhimaEmployer)
              .add(personalLevyEmployer)
-             .add(grzFuneralEmployer);
+             .add(grzFuneralEmployer)
+             .add(lasfOccupationalEmployer);
     }
 }

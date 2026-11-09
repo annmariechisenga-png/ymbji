@@ -224,10 +224,11 @@ class PayslipPersisterTest {
     }
 
     private StatutoryDeductions statutory() {
-        // All 14 fields, in the record's declared order:
+        // All 16 fields, in the record's declared order:
         // employeeId, taxableGross, paye, napsaEmployee, napsaEmployer,
         // lasfEmployee, lasfEmployer, nhimaEmployee, nhimaEmployer,
-        // grzFuneralEmployee, grzFuneralEmployer, contributionScheme
+        // grzFuneralEmployee, grzFuneralEmployer,
+        // lasfOccupationalEmployee, lasfOccupationalEmployer, contributionScheme
         return new StatutoryDeductions(
             "EMP-001",
             new BigDecimal("9700.00"),   // taxableGross = 10000 - 300 (NAPSA)
@@ -242,6 +243,8 @@ class PayslipPersisterTest {
             BigDecimal.ZERO,             // personalLevyEmployer
             new BigDecimal("25.00"),     // grzFuneralEmployee
             new BigDecimal("25.00"),     // grzFuneralEmployer
+            BigDecimal.ZERO,             // lasfOccupationalEmployee
+            BigDecimal.ZERO,             // lasfOccupationalEmployer
             "NAPSA");
     }
 }
