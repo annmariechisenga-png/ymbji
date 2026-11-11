@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Portal | Chilanga Town Council</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #0E5A2B;
+            --accent: #FFD700;
+            --bg-light: #F4F4F5;
+            --text-dark: #1A1A1A;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-light); display: flex; height: 100vh; color: var(--text-dark); }
+        .brand-side { flex: 1; background: linear-gradient(135deg, var(--primary) 0%, #083D1C 100%); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 40px; position: relative; overflow: hidden; }
+        .brand-side::after { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 6px; background-color: var(--accent); }
+        .brand-logo { width: 240px; height: auto; margin-bottom: 24px; filter: drop-shadow(0px 10px 20px rgba(0,0,0,0.3)); }
+        .brand-title { color: white; font-size: 2rem; font-weight: 700; letter-spacing: 0.5px; text-align: center; margin-bottom: 8px; }
+        .brand-subtitle { color: var(--accent); font-size: 1.1rem; font-weight: 400; letter-spacing: 2px; text-transform: uppercase; }
+        .login-side { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 40px; background-color: white; }
+        .login-container { width: 100%; max-width: 400px; }
+        .login-header { margin-bottom: 32px; }
+        .login-header h2 { font-size: 1.8rem; font-weight: 700; color: var(--primary); margin-bottom: 8px; }
+        .login-header p { color: #666; font-size: 0.95rem; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 8px; color: #444; }
+        .form-control { width: 100%; padding: 14px 16px; border: 1px solid #DDD; border-radius: 8px; font-size: 1rem; font-family: inherit; transition: all 0.2s; background-color: #FAFAFA; }
+        .form-control:focus { outline: none; border-color: var(--primary); background-color: white; box-shadow: 0 0 0 4px rgba(14, 90, 43, 0.1); }
+        .btn-submit { width: 100%; padding: 16px; background-color: var(--primary); color: white; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: background 0.2s; margin-top: 8px; }
+        .btn-submit:hover { background-color: #083D1C; }
+        .hint-text { margin-top: 24px; font-size: 0.85rem; color: #777; text-align: center; line-height: 1.5; background-color: var(--bg-light); padding: 12px; border-radius: 6px; border-left: 4px solid var(--accent); }
+        .powered-by { position: absolute; bottom: 24px; font-size: 0.75rem; color: #999; letter-spacing: 1px; font-weight: 600; text-transform: uppercase; }
+        @media (max-width: 768px) {
+            body { flex-direction: column; }
+            .brand-side { padding: 30px; flex: 0 0 auto; }
+            .brand-logo { width: 120px; }
+            .brand-title { font-size: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="brand-side">
+        <img id="council-logo" src="" alt="Council Logo" class="brand-logo" style="display: none;">
+        <h1 id="council-name" class="brand-title">Loading...</h1>
+        <span class="brand-subtitle">Employee Self-Service</span>
+    </div>
+    <div class="login-side">
+        <div class="login-container">
+            <div class="login-header">
+                <h2>Sign In</h2>
+                <p>Access your payslips and council documents.</p>
+            </div>
+            <form id="login-form">
+                <div class="form-group">
+                    <label>NRC Number</label>
+                    <input type="text" id="nrc" class="form-control" placeholder="e.g. 123456/78/1" required>
+                </div>
+                <div class="form-group">
+                    <label>Phone Number (Initial Password)</label>
+                    <input type="tel" id="phone" class="form-control" placeholder="e.g. 0971234567" required>
+                </div>
+                <button type="submit" class="btn-submit">Secure Login</button>
+            </form>
+            <div class="hint-text">
+                <i class="fa-solid fa-circle-info"></i> For your first login, use your NRC and registered phone number. You will be prompted to change this immediately.
+            </div>
+        </div>
+        <div class="powered-by">Powered by YMBJI 2027</div>
+    </div>
+    <script>
+        async function loadBranding() {
+            try {
+                const res = await fetch('/platform/branding');
+                const data = await res.json();
+                document.documentElement.style.setProperty('--primary', data.primary_color);
+                document.documentElement.style.setProperty('--accent', data.accent_color);
+                document.getElementById('council-logo').src = data.logo_url;
+                document.getElementById('council-logo').style.display = 'block';
+                document.getElementById('council-name').textContent = data.display_name;
+                document.title = `Employee Portal | ${data.display_name}`;
+            } catch (e) {
+                console.error("Branding failed to load", e);
+            }
+        }
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const nrc = document.getElementById('nrc').value;
+            const phone = document.getElementById('phone').value;
+            console.log("Authenticating:", nrc, phone);
+            alert("V182 API will process this:\nNRC: " + nrc + "\nPhone: " + phone);
+        });
+        loadBranding();
+    </script>
+</body>
+</html>

@@ -47,6 +47,11 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .ignoringRequestMatchers(
+                            "/platform/branding/logo",
+                            "/auth/employee/**",
+                            "/platform/*/confirm"
+                        )
+                        .ignoringRequestMatchers(
                                 new AntPathRequestMatcher("/auth/**"),
                                 new AntPathRequestMatcher("/actuator/**"),
                                 new AntPathRequestMatcher("/v3/api-docs/**"),
@@ -73,7 +78,7 @@ public class SecurityConfig {
                         .accessDeniedHandler(restAccessDeniedHandler)
                 )
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/index.html", "/chilanga/**", "/platform/**", "/status", "/auth/login", "/login/**", "/oauth2/**", "/saml2/**", "/error", "/health", "/actuator/health", "/actuator/info", "/actuator/metrics", "/actuator/prometheus", "/v3/api-docs/**", "/swagger-ui/**", "/meta/schema/**", "/dashboard/**", "/examples/**", "/assets/**", "/privacy/compliance").permitAll()
+                        .requestMatchers("/", "/index.html", "/chilanga/**", "/platform/**", "/platform/branding/logo/**", "/tenants/**", "/docs/**", "/employee/**", "/status", "/auth/login", "/login/**", "/oauth2/**", "/saml2/**", "/error", "/health", "/actuator/health", "/actuator/info", "/actuator/metrics", "/actuator/prometheus", "/v3/api-docs/**", "/swagger-ui/**", "/meta/schema/**", "/dashboard/**", "/examples/**", "/assets/**", "/privacy/compliance").permitAll()
                         .requestMatchers("/auth/mfa/**").authenticated()
                         .requestMatchers("/security/audit-logs/**").hasAnyRole("ADMIN", "HR")
                         .requestMatchers("/audit/**").hasRole("AUDITOR")

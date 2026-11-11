@@ -8,3 +8,7 @@ var/
 
 # Production payslip storage (never commit)
 var/lib/localgov-erp/
+web/storage/
+storage/
+# Local test data
+web/target/

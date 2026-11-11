@@ -165,6 +165,31 @@
             <div id="statusMsg" class="status"></div>
         </div>
 
+        <div class="card">
+            <h2><i class="fa-solid fa-palette"></i> Council Branding</h2>
+            <p class="hint">Upload official council logos. Changes appear immediately on that council's employee login page.</p>
+
+            <div class="form-group">
+                <label for="brandingCouncil">Select Council</label>
+                <select id="brandingCouncil" onchange="loadCouncilLogo()"></select>
+            </div>
+
+            <div class="form-group">
+                <label>Current Logo</label>
+                <div style="min-height: 100px; padding: 12px; background: #F9F9F9; border-radius: 6px;">
+                    <img id="brandingLogoPreview" src="" style="max-width: 100px; max-height: 100px; display: block;" alt="Current logo">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="brandingFile">Upload New Logo (PNG or JPG)</label>
+                <input type="file" id="brandingFile" accept="image/png, image/jpeg" style="padding: 8px;">
+            </div>
+
+            <button onclick="uploadCouncilLogo()" class="btn-primary">Save Logo</button>
+            <div id="brandingStatus" class="status" style="margin-top: 12px;"></div>
+        </div>
+
         <div class="card" id="previewCard" style="display:none;">
             <h2><i class="fa-solid fa-list-check"></i> Validation Results</h2>
             <div class="meta" id="previewMeta"></div>
@@ -391,6 +416,82 @@
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 })();
+</script>
+
+<script>
+async function loadCouncils() {
+    const res = await fetch('/platform/councils');
+    const councils = await res.json();
+    const select = document.getElementById('brandingCouncil');
+    select.innerHTML = '';
+    councils.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.authority_code;
+        opt.textContent = c.display_name;
+        select.appendChild(opt);
+    });
+    if (councils.length > 0) loadCouncilLogo();
+}
+
+async function loadCouncilLogo() {
+    const authorityCode = document.getElementById('brandingCouncil').value;
+    const res = await fetch('/platform/branding?authority=' + encodeURIComponent(authorityCode));
+    const data = await res.json();
+    document.getElementById('brandingLogoPreview').src = data.logo_url || '';
+}
+
+async function uploadCouncilLogo() {
+    try {
+        const authorityCode = document.getElementById('brandingCouncil').value;
+        const fileInput = document.getElementById('brandingFile');
+        const file = fileInput.files[0];
+        const status = document.getElementById('brandingStatus');
+
+        console.log('[UPLOAD] Starting. authorityCode=', authorityCode, 'file=', file);
+
+        if (!file) {
+            status.textContent = 'Please select a file first.';
+            status.style.color = '#B00020';
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('authorityCode', authorityCode);
+        formData.append('file', file);
+        console.log('[UPLOAD] FormData built. Sending request...');
+
+        status.textContent = 'Uploading...';
+        status.style.color = '#B87333';
+
+        const token = localStorage.getItem('erp_token');
+        console.log('[UPLOAD] Token present:', token ? 'yes' : 'no');
+
+        const res = await fetch('/platform/branding/logo', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token },
+            body: formData
+        });
+        console.log('[UPLOAD] Response status:', res.status);
+
+        const data = await res.json();
+        console.log('[UPLOAD] Response data:', data);
+
+        if (res.ok) {
+            status.textContent = 'Logo updated successfully.';
+            status.style.color = '#0A3622';
+            document.getElementById('brandingLogoPreview').src = data.logo_url + '?t=' + Date.now();
+        } else {
+            status.textContent = data.error || 'Upload failed.';
+            status.style.color = '#B00020';
+        }
+    } catch (e) {
+        console.error('[UPLOAD] Exception:', e);
+        document.getElementById('brandingStatus').textContent = 'Error: ' + e.message;
+        document.getElementById('brandingStatus').style.color = '#B00020';
+    }
+}
+
+loadCouncils();
 </script>
 </body>
 </html>
