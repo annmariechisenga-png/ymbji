@@ -63,7 +63,7 @@ public class SecurityConfig {
                         )
                 )
                 .headers(headers -> headers
-                        .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"))
+                        .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://unpkg.com; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"))
                         .referrerPolicy(referrer -> referrer.policy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
                         .frameOptions(frame -> frame.deny())
                         .httpStrictTransportSecurity(hsts -> hsts.includeSubDomains(true).maxAgeInSeconds(31536000))
@@ -78,7 +78,7 @@ public class SecurityConfig {
                         .accessDeniedHandler(restAccessDeniedHandler)
                 )
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/index.html", "/chilanga/**", "/platform/**", "/platform/branding/logo/**", "/tenants/**", "/docs/**", "/employee/**", "/status", "/auth/login", "/login/**", "/oauth2/**", "/saml2/**", "/error", "/health", "/actuator/health", "/actuator/info", "/actuator/metrics", "/actuator/prometheus", "/v3/api-docs/**", "/swagger-ui/**", "/meta/schema/**", "/dashboard/**", "/examples/**", "/assets/**", "/privacy/compliance").permitAll()
+                        .requestMatchers("/", "/index.html", "/chilanga/**", "/platform/**", "/platform/branding/logo/**", "/tenants/**", "/docs/**", "/employee/**", "/auth/employee/**", "/status", "/auth/login", "/login/**", "/oauth2/**", "/saml2/**", "/error", "/health", "/actuator/health", "/actuator/info", "/actuator/metrics", "/actuator/prometheus", "/v3/api-docs/**", "/swagger-ui/**", "/meta/schema/**", "/dashboard/**", "/examples/**", "/assets/**", "/privacy/compliance").permitAll()
                         .requestMatchers("/auth/mfa/**").authenticated()
                         .requestMatchers("/security/audit-logs/**").hasAnyRole("ADMIN", "HR")
                         .requestMatchers("/audit/**").hasRole("AUDITOR")
@@ -94,7 +94,7 @@ public class SecurityConfig {
                         .requestMatchers("/employees/**").hasAnyRole("ADMIN", "HR")
                         .requestMatchers("/leaves/**").hasAnyRole("ADMIN", "HR", "HEAD", "MANAGER", "EMPLOYEE")
                         .requestMatchers("/documents/**").permitAll()
-                        .requestMatchers("/payroll/me").hasAnyRole("ADMIN", "HR", "PAYROLL", "EMPLOYEE")
+                        .requestMatchers("/payroll/me", "/payroll/me/**").hasAnyRole("ADMIN", "HR", "PAYROLL", "EMPLOYEE")
                         .requestMatchers("/payroll/**").hasAnyRole("ADMIN", "PAYROLL")
                         .requestMatchers("/reports/**").hasAnyRole("ADMIN", "HR", "HEAD", "MANAGER", "FINANCE", "PAYROLL")
                         .requestMatchers("/salary-advances/**").hasAnyRole("ADMIN", "HR", "HEAD", "MANAGER", "FINANCE", "PAYROLL", "EMPLOYEE")
