@@ -269,6 +269,18 @@ public class BudgetUploadService {
                     "unit not found for " + departmentCode + " in this council"));
         }
 
+        // Funding source (optional in V191a — V191b will require it)
+        String fundingCode = str(row, "funding_source_code");
+        if (fundingCode != null && !fundingCode.isBlank()) {
+            Integer fsCount = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM funding_source WHERE funding_source_code = ? AND is_active = TRUE",
+                    Integer.class, fundingCode);
+            if (fsCount == null || fsCount == 0) {
+                errors.add(error(rowNumber, "funding_source_code", fundingCode,
+                        "funding source not recognised"));
+            }
+        }
+
         parseNumeric(row, "unit_cost", rowNumber, errors);
         parseNumeric(row, "quantity", rowNumber, errors);
         parseNumeric(row, "target", rowNumber, errors);
@@ -312,7 +324,10 @@ public class BudgetUploadService {
                 r.get("_programme_id"), r.get("_account_id"),
                 str(r, "activity_code"), str(r, "activity_description"),
                 str(r, "output_description"), str(r, "output_indicator"),
-                target, total, BigDecimal.ZERO
+                target, total, BigDecimal.ZERO,
+                str(r, "funding_source_code"),
+                unitCost,
+                qty.intValue()
             });
         }
         jdbc.batchUpdate(
@@ -321,8 +336,9 @@ public class BudgetUploadService {
                 "department_code, unit_code, programme_id, account_id, " +
                 "activity_code, activity_description, " +
                 "output_description, output_indicator, output_target, " +
-                "original_budget, supplementary_budget) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "original_budget, supplementary_budget, " +
+                "funding_source_code, unit_cost, approved_quantity) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 batchArgs);
     }
 

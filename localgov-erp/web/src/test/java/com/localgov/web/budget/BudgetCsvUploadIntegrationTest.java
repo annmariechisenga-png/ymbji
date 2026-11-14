@@ -122,11 +122,11 @@ class BudgetCsvUploadIntegrationTest {
                 + "output_description,output_indicator,activity_code,activity_description,"
                 + "account_code,unit_cost,quantity,target,funding_source_code,activity_total\n"
                 + "02,0,0011,03,Reports produced,Audit reports submitted,ACT-001,"
-                + "Fuel for audit vehicles,221020,1000,5,1,,5000\n"
+                + "Fuel for audit vehicles,221020,1000,5,1,OWN_SOURCE,5000\n"
                 + "02,0,0011,03,Reports produced,Audit reports submitted,ACT-002,"
-                + "Office materials,221010,250,4,1,,1000\n"
+                + "Office materials,221010,250,4,1,OWN_SOURCE,1000\n"
                 + "02,0,0011,03,Reports produced,Audit reports submitted,ACT-003,"
-                + "Postal charges,221040,100,2,1,,200\n";
+                + "Postal charges,221040,100,2,1,OWN_SOURCE,200\n";
 
         // 1. First upload — 3 rows accepted
         var r1 = uploadService.processUpload(versionId, CHILANGA, csv, null, false);
@@ -138,6 +138,17 @@ class BudgetCsvUploadIntegrationTest {
                 "SELECT SUM(original_budget) FROM budget_line WHERE version_id = ?",
                 BigDecimal.class, versionId);
         assertThat(total).isEqualByComparingTo(new BigDecimal("6200"));
+
+        // V191a: verify unit_cost, approved_quantity, and funding_source_code
+        var lineCheck = jdbc.queryForMap(
+                "SELECT unit_cost, approved_quantity, funding_source_code " +
+                "FROM budget_line WHERE version_id = ? AND activity_code = 'ACT-001'",
+                versionId);
+        assertThat((BigDecimal) lineCheck.get("unit_cost"))
+                .isEqualByComparingTo(new BigDecimal("1000"));
+        assertThat(((Number) lineCheck.get("approved_quantity")).intValue())
+                .isEqualTo(5);
+        assertThat(lineCheck.get("funding_source_code")).isEqualTo("OWN_SOURCE");
 
         // 2. Idempotency check — same key, same hash
         String key = "test-key-" + UUID.randomUUID();
@@ -192,9 +203,9 @@ class BudgetCsvUploadIntegrationTest {
                 + "output_description,output_indicator,activity_code,activity_description,"
                 + "account_code,unit_cost,quantity,target,funding_source_code,activity_total\n"
                 + "02,0,0011,03,Reports produced,Audit reports submitted,ACT-100,"
-                + "Replacement line A,221020,2000,2,1,,4000\n"
+                + "Replacement line A,221020,2000,2,1,OWN_SOURCE,4000\n"
                 + "02,0,0011,03,Reports produced,Audit reports submitted,ACT-101,"
-                + "Replacement line B,221010,500,2,1,,1000\n";
+                + "Replacement line B,221010,500,2,1,OWN_SOURCE,1000\n";
 
         var r5 = uploadService.processUpload(versionId, CHILANGA, replaceCsv, "replace", false);
         assertThat(r5.rowsAccepted()).isEqualTo(2);
