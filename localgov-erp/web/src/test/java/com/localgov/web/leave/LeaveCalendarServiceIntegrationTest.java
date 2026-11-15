@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
-@Disabled("Pre-existing failure: test @TestPropertySource uses H2 in-memory DB with spring.flyway.enabled=false; user accounts (admin, finance, employee, hr) never seeded. login() returns 401, tokenFor() throws UsernameNotFound. Fix in V191c test-hygiene session: convert to Testcontainers + Postgres like BudgetCsvUploadIntegrationTest.")
+@Disabled("Pre-existing failure — API drift. Tests were written against an older POST /employees API that accepted {employeeCode, baseSalary, hireDate} and returned {id: Long}. Current EmployeeUpsertRequest accepts {employeeId, authorityCode, sex} and returns {employeeId: String}. Also references erp_employee (singular) table which is now employees. Tests also use H2 + spring.flyway.enabled=false. Fix in V193b: rewrite against current EmployeeUpsertRequest / LeaveRequestCreateRequest DTOs, convert to Testcontainers + Postgres, seed leave_balances via JDBC.")
 class LeaveCalendarServiceIntegrationTest {
 
     @Autowired private MockMvc mockMvc;

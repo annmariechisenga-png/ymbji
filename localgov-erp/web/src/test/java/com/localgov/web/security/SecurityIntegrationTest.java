@@ -1,8 +1,9 @@
 package com.localgov.web.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.localgov.web.testutil.TestAuthSeeder;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -10,8 +11,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -20,31 +26,38 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(classes = com.localgov.web.LocalGovErpApplication.class)
 @AutoConfigureMockMvc
 @Tag("integration")
-@TestPropertySource(properties = {
-        "jwt.secret=Q2hhbmdlVGhpc1RvQVN0cm9uZ0FuZExvbmdlckRldk9ubHlTZWNyZXRLZXlGb3JMb2NhbEdvdkVSUA==",
-        "jwt.expiration-millis=3600000",
-        "spring.datasource.url=jdbc:h2:mem:erp_test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1",
-        "spring.datasource.username=sa",
-        "spring.datasource.password=",
-        "spring.datasource.driver-class-name=org.h2.Driver",
-        "spring.flyway.enabled=false",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.jpa.database-platform=org.hibernate.dialect.H2Dialect"
-})
-@Disabled("Pre-existing failure: test @TestPropertySource uses H2 in-memory DB with spring.flyway.enabled=false; user accounts (admin, finance, employee, hr) never seeded. login() returns 401, tokenFor() throws UsernameNotFound. Fix in V191c test-hygiene session: convert to Testcontainers + Postgres like BudgetCsvUploadIntegrationTest.")
+@Testcontainers
+@ActiveProfiles("rls-test")
 class SecurityIntegrationTest {
 
-    @Autowired
-    private MockMvc mockMvc;
+    @Container
+    static final PostgreSQLContainer<?> postgres =
+        new PostgreSQLContainer<>("postgres:15")
+            .withDatabaseName("localgov_security_it")
+            .withUsername("postgres")
+            .withPassword("postgres");
 
-    @Autowired
-    private ObjectMapper objectMapper;
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", postgres::getJdbcUrl);
+        registry.add("spring.datasource.username", postgres::getUsername);
+        registry.add("spring.datasource.password", postgres::getPassword);
+        registry.add("pii.encryption.key", () -> "dGVzdC1waWktZW5jcnlwdGlvbi1rZXktMzJieXRlcyE=");
+        registry.add("pii.hmac.key", () -> "dGVzdC1waWktaG1hYy1rZXktMzJieXRlcy1oZXJlMTI=");
+    }
 
-    @Autowired
-    private JwtService jwtService;
+    @Autowired private MockMvc mockMvc;
+    @Autowired private ObjectMapper objectMapper;
+    @Autowired private JwtService jwtService;
+    @Autowired private TestAuthSeeder seeder;
+
+    @BeforeEach
+    void setUp() {
+        seeder.seedStandardUsers();
+    }
 
     @Test
     void loginReturnsJwtToken() throws Exception {
