@@ -175,23 +175,26 @@ class PayrollEngineServiceIntegrationTest {
             .filter(i -> "EMP-NAPSA-01".equals(i.get("employee_id")))
             .findFirst()
             .orElseThrow(() -> new AssertionError("EMP-NAPSA-01 not found"));
-        // NAPSA total = min(gross_pay, ceiling) × (employee_rate + employer_rate).
-        // The exact amount depends on the salary notch value in
-        // erp_salary_notch_value and the NAPSA rate in compliance_rule.
-        // The original hardcoded 186.18 was based on an older notch value
-        // and rate combination that no longer applies. Assert semantic
-        // properties instead: positive, and less than 20% of gross (a
-        // safe upper bound since NAPSA total rate never exceeds ~10%).
+        // NAPSA employee contribution = min(gross × employee_rate, max_per_side_cap).
         //
-        // NOTE (V193): while writing this test we discovered a real
-        // production bug — the engine computes NAPSA on full gross pay
-        // (18,024.00) without applying the 2026 monthly ceiling
-        // (3,723.60). NAPSA employee contribution is 901.20 instead of
-        // the correct 186.18. Tracked for V194a (payroll engine fix).
+        // The compliance_rule has:
+        //   employee_rate: 0.05, employer_rate: 0.05
+        //   ceiling_by_year.2026: 3723.60  (combined employee + employer cap)
+        //   max_employer_contribution_2026: 1861.80  (per-side cap = 3723.60/2)
+        //
+        // For LGSS05 notch 1 (gross = 18,024.00), employee NAPSA = 18,024 × 0.05
+        // = 901.20, well under the per-side cap of 1,861.80. Correct value: 901.20.
+        //
+        // The original test expected 186.18, based on an INCORRECT reading of
+        // the ceiling as a gross-pay cap: min(18,024, 3,723.60) × 0.05 = 186.18.
+        // That interpretation is wrong — the ceiling caps the CONTRIBUTION,
+        // not the gross pay. The engine is correct; the test assertion was stale.
+        //
+        // This was investigated as V194a "NAPSA ceiling bug" and turned out to
+        // be a test-semantics issue, not a code bug. The engine (StatutoryCalculator
+        // lines 109-131) correctly does: napsaEmployee = uncappedEmployee.min(ceiling/2).
         BigDecimal napsaAmount = (BigDecimal) napsaItem.get("napsa_amount");
-        BigDecimal napsaGross = (BigDecimal) napsaItem.get("gross_pay");
-        assertThat(napsaAmount).isPositive();
-        assertThat(napsaAmount).isLessThan(napsaGross.multiply(new BigDecimal("0.20")));
+        assertThat(napsaAmount).isEqualByComparingTo("901.20");
 
         // LASF employee
         Map<String, Object> lasfItem = items.stream()
