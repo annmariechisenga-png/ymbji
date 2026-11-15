@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>My Profile — Employee Self-Service</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; background: #f5f5f0; color: #1a1a1a; }
+  header { background: #1a3a1a; color: #fff; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header .user-chip { background: rgba(255,255,255,0.15); padding: 6px 12px; border-radius: 20px; font-size: 13px; }
+  .container { max-width: 1000px; margin: 24px auto; padding: 0 24px; }
+  .progress { display: flex; gap: 8px; margin-bottom: 24px; }
+  .progress .step { flex: 1; height: 4px; background: #d0d0d0; border-radius: 2px; transition: background 0.3s; }
+  .progress .step.done { background: #1a3a1a; }
+  .progress .step.active { background: #c9a227; }
+  .card { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+  .card h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #1a3a1a; display: flex; justify-content: space-between; align-items: center; }
+  .card h2 .badge { font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 12px; background: #e8f0e8; color: #1a3a1a; }
+  .card h2 .badge.locked { background: #f0e8e8; color: #8b2020; }
+  .field { display: flex; flex-direction: column; margin-bottom: 12px; }
+  .field label { font-size: 12px; color: #666; margin-bottom: 4px; font-weight: 500; }
+  .field input, .field select { padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; font-family: inherit; font-size: 14px; }
+  .field input:disabled { background: #f5f5f5; cursor: not-allowed; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .btn { padding: 10px 20px; border-radius: 6px; font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer; border: none; transition: opacity 0.2s; }
+  .btn-primary { background: #1a3a1a; color: #fff; }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary { background: #e8f0e8; color: #1a3a1a; }
+  .btn-danger { background: #f0e8e8; color: #8b2020; }
+  .beneficiary-list { display: flex; flex-direction: column; gap: 8px; }
+  .beneficiary-row { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f9f9f7; border-radius: 8px; }
+  .beneficiary-row .info { font-size: 13px; }
+  .beneficiary-row .info .name { font-weight: 600; }
+  .beneficiary-row .info .meta { color: #666; font-size: 12px; }
+  .signature-pad { border: 2px dashed #d0d0d0; border-radius: 8px; padding: 16px; text-align: center; cursor: pointer; }
+  .signature-pad.has-signature { border-color: #1a3a1a; border-style: solid; }
+  .status-banner { padding: 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+  .status-banner.accepted { background: #e8f0e8; color: #1a3a1a; }
+  .status-banner.submitted { background: #fff8e0; color: #8b6a20; }
+  .status-banner.rejected { background: #f0e8e8; color: #8b2020; }
+  .status-banner .label { font-weight: 600; margin-bottom: 4px; }
+  .toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; background: #1a3a1a; color: #fff; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>My Profile</h1>
+  <div style="display:flex; gap:12px; align-items:center;">
+    <a href="/employee/portal.html" style="color:#fff; text-decoration:none; font-size:13px;">← Back to Dashboard</a>
+    <div class="user-chip" id="userChip">Loading...</div>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="progress" id="progress">
+    <div class="step active" data-section="personal"></div>
+    <div class="step" data-section="contact"></div>
+    <div class="step" data-section="bank"></div>
+    <div class="step" data-section="beneficiaries"></div>
+    <div class="step" data-section="declaration"></div>
+  </div>
+
+  <div id="statusBanner"></div>
+
+  <!-- Section 1: Personal (read-only) -->
+  <div class="card" data-section="personal">
+    <h2>Personal Details <span class="badge locked">Locked</span></h2>
+    <div class="grid-2">
+      <div class="field"><label>First Name</label><input id="pFirstName" disabled></div>
+      <div class="field"><label>Middle Name</label><input id="pMiddleName" disabled></div>
+    </div>
+    <div class="grid-2">
+      <div class="field"><label>Surname</label><input id="pLastName" disabled></div>
+      <div class="field"><label>Sex</label><input id="pSex" disabled></div>
+    </div>
+    <div class="grid-2">
+      <div class="field"><label>Date of Birth</label><input id="pDob" disabled></div>
+      <div class="field"><label>NRC (masked)</label><input id="pNrc" disabled></div>
+    </div>
+  </div>
+
+  <!-- Section 2: Contact (editable) -->
+  <div class="card" data-section="contact">
+    <h2>Contact Details <span class="badge">Editable</span></h2>
+    <div class="grid-3">
+      <div class="field"><label>House / Plot No</label><input id="cHousePlot" placeholder="12"></div>
+      <div class="field"><label>Street</label><input id="cStreet" placeholder="Independence Ave"></div>
+      <div class="field"><label>Township</label><input id="cTownship" placeholder="Chilanga"></div>
+    </div>
+    <div class="grid-2">
+      <div class="field"><label>Country</label><input id="cCountry" value="Zambia"></div>
+      <div class="field"><label>Email</label><input id="cEmail" type="email"></div>
+    </div>
+    <h3 style="margin-top:16px; margin-bottom:12px; font-size:14px; color:#666;">Next of Kin</h3>
+    <div class="grid-2">
+      <div class="field"><label>Full Name</label><input id="cNokName"></div>
+      <div class="field"><label>Relationship</label>
+        <select id="cNokRelationship">
+          <option>SPOUSE</option><option>PARENT</option><option>CHILD</option>
+          <option>SIBLING</option><option>OTHER</option>
+        </select>
+      </div>
+    </div>
+    <div class="field"><label>Email</label><input id="cNokEmail" type="email"></div>
+    <button class="btn btn-primary" onclick="saveContact()">Save Contact</button>
+  </div>
+
+  <!-- Section 3: Bank -->
+  <div class="card" data-section="bank">
+    <h2>Bank Details <span class="badge">Editable</span></h2>
+    <div class="grid-2">
+      <div class="field"><label>Bank Name</label><input id="bBankName" placeholder="Zanaco"></div>
+      <div class="field"><label>Branch Name</label><input id="bBranchName" placeholder="Chilanga Branch"></div>
+    </div>
+    <div class="grid-2">
+      <div class="field"><label>Branch Code</label><input id="bBranchCode" placeholder="04"></div>
+      <div class="field"><label>Account Number (masked)</label><input id="bAccountMasked" disabled></div>
+    </div>
+    <button class="btn btn-primary" onclick="saveBank()">Save Bank Details</button>
+  </div>
+
+  <!-- Section 4: Beneficiaries -->
+  <div class="card" data-section="beneficiaries">
+    <h2>Beneficiaries <span class="badge">Up to 10</span></h2>
+    <div class="beneficiary-list" id="beneficiaryList">
+      <p style="color:#666; font-size:13px;">No beneficiaries yet. Add at least one.</p>
+    </div>
+    <div style="margin-top:16px; padding:16px; background:#f9f9f7; border-radius:8px;">
+      <h3 style="font-size:13px; margin-bottom:12px; color:#666;">Add Beneficiary</h3>
+      <div class="grid-2">
+        <div class="field"><label>First Name</label><input id="nbFirstName"></div>
+        <div class="field"><label>Surname</label><input id="nbSurname"></div>
+      </div>
+      <div class="grid-3">
+        <div class="field"><label>Date of Birth</label><input id="nbDob" type="date"></div>
+        <div class="field"><label>Sex</label>
+          <select id="nbSex"><option>MALE</option><option>FEMALE</option></select>
+        </div>
+        <div class="field"><label>Relationship</label>
+          <select id="nbRelationship">
+            <option>SPOUSE</option><option>CHILD</option><option>PARENT</option>
+            <option>SIBLING</option><option>OTHER</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-secondary" onclick="addBeneficiary()">+ Add</button>
+    </div>
+  </div>
+
+  <!-- Section 5: Declaration + Submit -->
+  <div class="card" data-section="declaration">
+    <h2>Declaration & Submit to LASF <span class="badge">Final Step</span></h2>
+
+    <div class="signature-pad" id="signaturePad" onclick="document.getElementById('sigFile').click()">
+      <p style="color:#666; font-size:13px;">Click to upload your signature image (PNG or JPG)</p>
+      <img id="sigPreview" style="max-height:80px; display:none; margin-top:8px;">
+      <input type="file" id="sigFile" accept="image/*" style="display:none;" onchange="previewSignature(event)">
+    </div>
+
+    <div style="margin-top:16px;">
+      <label style="display:flex; gap:8px; font-size:13px; align-items:flex-start;">
+        <input type="checkbox" id="declarationCheck" style="margin-top:2px;">
+        <span>I hereby declare that the information provided above is true and correct to the best of my knowledge and I will take full responsibility for any erroneous details given above.</span>
+      </label>
+    </div>
+
+    <button class="btn btn-primary" id="submitBtn" onclick="submitFormII()" disabled
+            style="margin-top:16px;">Submit to LASF</button>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const token = localStorage.getItem('token');
+const userJson = localStorage.getItem('user');
+if (!token || !userJson) { window.location.href = '/employee/login.html'; }
+
+const user = JSON.parse(userJson || '{}');
+document.getElementById('userChip').textContent = (user.fullName || user.username || 'Employee') + ' / ' + (user.role || 'EMPLOYEE');
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', ...(opts.headers || {}) }
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+async function loadProfile() {
+  const p = await api('/employees/me/profile');
+  document.getElementById('pFirstName').value = p.personalDetails.firstName || '';
+  document.getElementById('pMiddleName').value = p.personalDetails.middleName || '';
+  document.getElementById('pLastName').value = p.personalDetails.lastName || '';
+  document.getElementById('pSex').value = p.personalDetails.sex || '';
+  document.getElementById('pDob').value = p.personalDetails.dateOfBirth || '';
+  document.getElementById('pNrc').value = p.personalDetails.nrcMasked || '';
+
+  document.getElementById('cHousePlot').value = p.contact.housePlotNo || '';
+  document.getElementById('cStreet').value = p.contact.street || '';
+  document.getElementById('cTownship').value = p.contact.township || '';
+  document.getElementById('cCountry').value = p.contact.country || 'Zambia';
+  document.getElementById('cEmail').value = p.contact.email || '';
+  document.getElementById('cNokName').value = p.nextOfKin.name || '';
+  document.getElementById('cNokEmail').value = p.nextOfKin.email || '';
+  document.getElementById('cNokRelationship').value = p.nextOfKin.relationship || 'SPOUSE';
+
+  document.getElementById('bBankName').value = p.bank.bankName || '';
+  document.getElementById('bBranchName').value = p.bank.branchName || '';
+  document.getElementById('bBranchCode').value = p.bank.branchCode || '';
+  document.getElementById('bAccountMasked').value = p.bank.accountNumberMasked || '';
+
+  // Status banner
+  const status = await api('/lasf/member-registration/status');
+  const banner = document.getElementById('statusBanner');
+  if (status.status && status.status !== 'NOT_SUBMITTED') {
+    const cls = status.status === 'ACCEPTED' ? 'accepted' : status.status === 'REJECTED' ? 'rejected' : 'submitted';
+    banner.innerHTML = '<div class="status-banner ' + cls + '">' +
+      '<div class="label">LASF Status: ' + status.status + '</div>' +
+      (status.lasf_social_security_number ? '<div>SSN: ' + status.lasf_social_security_number + '</div>' : '') +
+      (status.rejection_reason ? '<div>Reason: ' + status.rejection_reason + '</div>' : '') +
+      '</div>';
+  }
+}
+
+async function saveContact() {
+  await api('/employees/me/profile/contact', { method: 'POST', body: JSON.stringify({
+    housePlotNo: document.getElementById('cHousePlot').value,
+    street: document.getElementById('cStreet').value,
+    township: document.getElementById('cTownship').value,
+    country: document.getElementById('cCountry').value,
+    email: document.getElementById('cEmail').value
+  })});
+  await api('/employees/me/profile/nextOfKin', { method: 'POST', body: JSON.stringify({
+    name: document.getElementById('cNokName').value,
+    email: document.getElementById('cNokEmail').value,
+    relationship: document.getElementById('cNokRelationship').value
+  })});
+  toast('Contact saved');
+}
+
+async function saveBank() {
+  await api('/employees/me/profile/bank', { method: 'POST', body: JSON.stringify({
+    bankName: document.getElementById('bBankName').value,
+    branchName: document.getElementById('bBranchName').value,
+    branchCode: document.getElementById('bBranchCode').value
+  })});
+  toast('Bank details saved');
+}
+
+async function loadBeneficiaries() {
+  const list = await api('/employees/me/beneficiaries');
+  const el = document.getElementById('beneficiaryList');
+  if (list.length === 0) {
+    el.innerHTML = '<p style="color:#666; font-size:13px;">No beneficiaries yet. Add at least one.</p>';
+    return;
+  }
+  el.innerHTML = list.map(b => `
+    <div class="beneficiary-row">
+      <div class="info">
+        <div class="name">${b.first_name} ${b.surname}</div>
+        <div class="meta">${b.relationship} · ${b.sex || '—'} · DOB: ${b.date_of_birth || '—'}</div>
+      </div>
+      <button class="btn btn-danger" onclick="removeBeneficiary(${b.sequence_no})" style="padding:6px 12px; font-size:12px;">Remove</button>
+    </div>`).join('');
+}
+
+async function addBeneficiary() {
+  const list = await api('/employees/me/beneficiaries');
+  const nextSeq = (list.length === 0 ? 1 : Math.max(...list.map(b => b.sequence_no)) + 1);
+  await api('/employees/me/beneficiaries', { method: 'POST', body: JSON.stringify({
+    sequenceNo: nextSeq,
+    firstName: document.getElementById('nbFirstName').value,
+    surname: document.getElementById('nbSurname').value,
+    dateOfBirth: document.getElementById('nbDob').value,
+    sex: document.getElementById('nbSex').value,
+    relationship: document.getElementById('nbRelationship').value
+  })});
+  document.getElementById('nbFirstName').value = '';
+  document.getElementById('nbSurname').value = '';
+  await loadBeneficiaries();
+  toast('Beneficiary added');
+}
+
+async function removeBeneficiary(seq) {
+  if (!confirm('Remove beneficiary #' + seq + '?')) return;
+  await api('/employees/me/beneficiaries/' + seq, { method: 'DELETE' });
+  await loadBeneficiaries();
+  toast('Beneficiary removed');
+}
+
+let signatureFile = null;
+function previewSignature(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  signatureFile = file;
+  const img = document.getElementById('sigPreview');
+  img.src = URL.createObjectURL(file);
+  img.style.display = 'block';
+  document.getElementById('signaturePad').classList.add('has-signature');
+}
+
+document.getElementById('declarationCheck').addEventListener('change', e => {
+  document.getElementById('submitBtn').disabled = !e.target.checked;
+});
+
+async function submitFormII() {
+  if (!signatureFile) { toast('Please upload your signature'); return; }
+
+  const formData = new FormData();
+  formData.append('signatureImage', signatureFile);
+  formData.append('signatureContentType', signatureFile.type || 'image/png');
+
+  const res = await fetch('/lasf/member-registration', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token },
+    body: formData
+  });
+
+  if (!res.ok) {
+    toast('Submission failed: ' + await res.text());
+    return;
+  }
+
+  const result = await res.json();
+  toast('Submitted to LASF — Status: ' + result.status);
+  await loadProfile();
+}
+
+// Load on page ready
+loadProfile().then(loadBeneficiaries).catch(e => {
+  console.error(e);
+  toast('Failed to load profile: ' + e.message);
+});
+</script>
+</body>
+</html>
