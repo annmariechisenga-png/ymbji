@@ -300,14 +300,16 @@ class AllowanceCalculatorTest {
             .thenReturn(List.of(emp));
     }
 
-    @SuppressWarnings("unchecked")
     private void stubAllowances(List<Map<String, Object>> allowances) {
-        // Explicitly match the (String, Object...) overload by passing an
-        // anyString() matcher for the single vararg argument.
-        when(jdbcTemplate.queryForList(
+        // The calculator calls queryForList(SQL, String, LocalDate, LocalDate)
+        // — SQL + 3 varargs. Use doReturn().when() instead of when().thenReturn()
+        // because the contains(...) matcher returns null at compile time and
+        // confuses Mockito's type inference when choosing between the
+        // queryForList(String, Object...) and queryForList(String, Class, Object...)
+        // overloads. doReturn bypasses type inference entirely.
+        doReturn(allowances).when(jdbcTemplate).queryForList(
                 contains("FROM erp_allowance_type"),
-                anyString()))
-            .thenReturn(allowances);
+                any(Object.class), any(Object.class), any(Object.class));
     }
 
     private void stubRule(String ruleCode, String json) {
