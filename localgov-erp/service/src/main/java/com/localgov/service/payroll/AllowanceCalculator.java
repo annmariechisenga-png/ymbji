@@ -65,8 +65,22 @@ public class AllowanceCalculator {
                                        String authorityCode,
                                        ResolvedSalary salary,
                                        LocalDate periodStart) {
-
         EmployeeAttributes emp = loadEmployee(employeeId, authorityCode);
+        return computeFromMap(emp, employeeId, authorityCode, salary, periodStart);
+    }
+
+    /**
+     * V194b — compute from an in-memory EmployeeAttributes, skipping the
+     * employee DB lookup. Still reads erp_allowance_type (global reference
+     * table) and compliance_rule (hardship classification).
+     * Used by HypotheticalPayrollService for simulation.
+     */
+    public List<AllowanceLine> computeFromMap(EmployeeAttributes emp,
+                                              String employeeId,
+                                              String authorityCode,
+                                              ResolvedSalary salary,
+                                              LocalDate periodStart) {
+
         BigDecimal basic = salary.proratedBasic();
 
         // Load all payroll allowances applicable to this employee's unit
@@ -349,7 +363,7 @@ public class AllowanceCalculator {
         return value.setScale(MONEY_SCALE, MONEY_ROUNDING);
     }
 
-    record EmployeeAttributes(
+    public record EmployeeAttributes(
         String salaryScale,
         String bargainingUnit,
         String department,

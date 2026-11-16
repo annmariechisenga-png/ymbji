@@ -64,8 +64,22 @@ public class SalaryResolver {
                                   String authorityCode,
                                   LocalDate periodStart,
                                   LocalDate periodEnd) {
-
         Map<String, Object> emp = loadEmployee(employeeId, authorityCode);
+        return resolveFromMap(emp, employeeId, authorityCode, periodStart, periodEnd);
+    }
+
+    /**
+     * V194b — resolve from an in-memory employee map, skipping the DB lookup.
+     * Used by HypotheticalPayrollService for simulation.
+     * The map must contain: salary_scale, current_notch, date_reported,
+     * termination_date.
+     */
+    public ResolvedSalary resolveFromMap(Map<String, Object> emp,
+                                         String employeeId,
+                                         String authorityCode,
+                                         LocalDate periodStart,
+                                         LocalDate periodEnd) {
+
         String salaryScale = (String) emp.get("salary_scale");
         Integer notchNo = (Integer) emp.get("current_notch");
         LocalDate hireDate = toLocalDate(emp.get("date_reported"));

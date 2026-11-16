@@ -83,8 +83,30 @@ public class StatutoryCalculator {
                                        int periodYear,
                                        BigDecimal grossAllowances,
                                        BigDecimal housingAllowanceAmount) {
-
         LocalDate firstAppointment = loadFirstAppointment(employeeId, authorityCode);
+        return computeFromMap(employeeId, authorityCode, salary, periodStart,
+                              periodYear, grossAllowances, housingAllowanceAmount,
+                              firstAppointment);
+    }
+
+    /**
+     * V194b — compute from an explicit firstAppointment date, skipping the
+     * employee DB lookup. Reads compliance_rule (statutory rates) and
+     * authorities (housing exemption) from reference tables.
+     * Used by HypotheticalPayrollService for simulation.
+     *
+     * @param firstAppointment the employee's date_of_first_appointment, or
+     *                         null if unknown. Used only to determine
+     *                         NAPSA (hire >= 2000-03-01) vs LASF (hire < 2000-03-01).
+     */
+    public StatutoryDeductions computeFromMap(String employeeId,
+                                              String authorityCode,
+                                              ResolvedSalary salary,
+                                              LocalDate periodStart,
+                                              int periodYear,
+                                              BigDecimal grossAllowances,
+                                              BigDecimal housingAllowanceAmount,
+                                              LocalDate firstAppointment) {
         boolean lasfScheme = firstAppointment != null
                 && firstAppointment.isBefore(PENSION_SCHEME_CUTOFF);
 
