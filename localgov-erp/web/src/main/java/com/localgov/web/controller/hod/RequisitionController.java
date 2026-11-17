@@ -99,6 +99,35 @@ public class RequisitionController {
     }
 
     // ---------------------------------------------------------------
+    // V194b: role-based filter endpoints (consumed by the list page)
+    // ---------------------------------------------------------------
+
+    @GetMapping("/my-submissions")
+    @PreAuthorize("hasAnyRole('EMPLOYEE','HR','ADMIN','FINANCE','HEAD','SUPERADMIN','CONTROLLING_OFFICER')")
+    public ResponseEntity<List<Map<String, Object>>> mySubmissions() {
+        return ResponseEntity.ok(service.listSubmittedByMe(
+                currentUserId(), currentAuthorityCode()));
+    }
+
+    @GetMapping("/assigned-to-me")
+    @PreAuthorize("hasAnyRole('HEAD','FINANCE','CONTROLLING_OFFICER','ADMIN','SUPERADMIN')")
+    public ResponseEntity<List<Map<String, Object>>> assignedToMe(
+            @RequestParam(value = "department", required = false) String department) {
+        return ResponseEntity.ok(service.listAssignedToMe(
+                currentUserId(), currentPrimaryRole(),
+                currentAuthorityCode(), department));
+    }
+
+    @GetMapping("/visible")
+    @PreAuthorize("hasAnyRole('EMPLOYEE','HR','ADMIN','FINANCE','HEAD','SUPERADMIN','CONTROLLING_OFFICER')")
+    public ResponseEntity<List<Map<String, Object>>> visible(
+            @RequestParam(value = "department", required = false) String department) {
+        return ResponseEntity.ok(service.listForUser(
+                currentUserId(), currentPrimaryRole(),
+                currentAuthorityCode(), department));
+    }
+
+    // ---------------------------------------------------------------
 
     private Long currentUserId() {
         var auth = SecurityContextHolder.getContext().getAuthentication();
@@ -122,5 +151,16 @@ public class RequisitionController {
             return tu.getAuthorityCode();
         }
         throw new IllegalStateException("No authority in session");
+    }
+
+    private String currentPrimaryRole() {
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null) {
+            return auth.getAuthorities().stream()
+                    .map(a -> a.getAuthority().replaceFirst("^ROLE_", ""))
+                    .findFirst()
+                    .orElse("UNKNOWN");
+        }
+        return "UNKNOWN";
     }
 }

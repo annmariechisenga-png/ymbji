@@ -108,7 +108,9 @@ public class RequisitionService {
     // ---------------------------------------------------------------
 
     public Map<String, Object> getRequisition(UUID requisitionId) {
-        Map<String, Object> header = jdbc.queryForMap(
+        // queryForMap returns an immutable map — wrap in LinkedHashMap so we
+        // can add the lines and approvalEvents arrays to the response.
+        Map<String, Object> header = new java.util.LinkedHashMap<>(jdbc.queryForMap(
                 "SELECT requisition_id, requisition_number, authority_code, fiscal_year, " +
                 "       department_code, status, total_amount, justification, " +
                 "       required_by_date, submitter_user_id, submitter_employee_id, " +
@@ -119,7 +121,7 @@ public class RequisitionService {
                 "       return_reason, rejection_reason, " +
                 "       created_at, updated_at " +
                 "FROM purchase_requisition WHERE requisition_id = ?",
-                requisitionId);
+                requisitionId));
 
         List<Map<String, Object>> lines = jdbc.queryForList(
                 "SELECT line_id, line_number, budget_line_id, item_description, " +
@@ -128,7 +130,17 @@ public class RequisitionService {
                 "ORDER BY line_number",
                 requisitionId);
 
+        // V194b: full audit trail included in the detail response
+        List<Map<String, Object>> approvalEvents = jdbc.queryForList(
+                "SELECT event_id, event_type, from_status, to_status, " +
+                "       actor_user_id, actor_role, actor_ip, actor_user_agent, " +
+                "       signature_hash, previous_event_hash, event_at " +
+                "FROM requisition_approval_event " +
+                "WHERE requisition_id = ? ORDER BY event_id",
+                requisitionId);
+
         header.put("lines", lines);
+        header.put("approvalEvents", approvalEvents);
         return header;
     }
 
@@ -151,6 +163,120 @@ public class RequisitionService {
                 "WHERE authority_code = ? AND department_code = ? " +
                 "ORDER BY created_at DESC",
                 authorityCode, departmentCode);
+    }
+
+    /**
+     * V194b — requisitions submitted by a specific user (the "My Requisitions"
+     * filter on the list page).
+     */
+    public List<Map<String, Object>> listSubmittedByMe(Long userId, String authorityCode) {
+        return jdbc.queryForList(
+                "SELECT requisition_id, requisition_number, status, total_amount, " +
+                "       department_code, justification, created_at " +
+                "FROM purchase_requisition " +
+                "WHERE authority_code = ? AND submitter_user_id = ? " +
+                "ORDER BY created_at DESC",
+                authorityCode, userId);
+    }
+
+    /**
+     * V194b — requisitions currently awaiting action from this user's role.
+     *
+     * Role → current status waiting:
+     *   HEAD                → SUBMITTED (needs endorsement)
+     *   FINANCE             → HOD_ENDORSED (needs funds confirmation)
+     *   CONTROLLING_OFFICER → FINANCE_CONFIRMED (needs authorisation decision)
+     *
+     * If departmentCode is provided, results are additionally filtered to that
+     * department (HoD scope). If null, council-wide (Finance/CO scope).
+     */
+    public List<Map<String, Object>> listAssignedToMe(Long userId, String role,
+                                                       String authorityCode,
+                                                       String departmentCode) {
+        String status;
+        if (role == null) {
+            return List.of();
+        }
+        if (role.contains("CONTROLLING_OFFICER")) {
+            status = "FINANCE_CONFIRMED";
+        } else if (role.contains("FINANCE")) {
+            status = "HOD_ENDORSED";
+        } else if (role.contains("HEAD") || role.contains("DIRECTOR")) {
+            status = "SUBMITTED";
+        } else {
+            return List.of();
+        }
+
+        if (departmentCode != null && !departmentCode.isBlank()) {
+            return jdbc.queryForList(
+                    "SELECT requisition_id, requisition_number, status, total_amount, " +
+                    "       department_code, justification, created_at " +
+                    "FROM purchase_requisition " +
+                    "WHERE authority_code = ? AND status = ? AND department_code = ? " +
+                    "ORDER BY created_at ASC",
+                    authorityCode, status, departmentCode);
+        } else {
+            return jdbc.queryForList(
+                    "SELECT requisition_id, requisition_number, status, total_amount, " +
+                    "       department_code, justification, created_at " +
+                    "FROM purchase_requisition " +
+                    "WHERE authority_code = ? AND status = ? " +
+                    "ORDER BY created_at ASC",
+                    authorityCode, status);
+        }
+    }
+
+    /**
+     * V194b — role-based view of all requisitions the user can see.
+     *
+     * Visibility rules (least privilege per ISO 27001 A.9.1.2):
+     *   ADMIN / SUPERADMIN   → all in council
+     *   FINANCE / CO         → all in council (their job is cross-department)
+     *   HEAD / DIRECTOR      → own department + any they submitted
+     *   EMPLOYEE             → only their own submissions
+     *
+     * Cross-department visibility for approvers is deliberately limited — a
+     * Head of Engineering should not browse HR requisitions they don't
+     * approve. Auditors with AGO role would get a separate endpoint (V195).
+     */
+    public List<Map<String, Object>> listForUser(Long userId, String role,
+                                                  String authorityCode,
+                                                  String departmentCode) {
+        if (role == null) {
+            return List.of();
+        }
+
+        if (role.contains("ADMIN") || role.contains("SUPERADMIN")
+                || role.contains("FINANCE") || role.contains("CONTROLLING_OFFICER")) {
+            return jdbc.queryForList(
+                    "SELECT requisition_id, requisition_number, status, total_amount, " +
+                    "       department_code, submitter_employee_id, justification, created_at " +
+                    "FROM purchase_requisition " +
+                    "WHERE authority_code = ? " +
+                    "ORDER BY created_at DESC",
+                    authorityCode);
+        }
+
+        if (role.contains("HEAD") || role.contains("DIRECTOR")) {
+            // Own department OR own submissions (a Head may submit as an employee too)
+            return jdbc.queryForList(
+                    "SELECT requisition_id, requisition_number, status, total_amount, " +
+                    "       department_code, submitter_employee_id, justification, created_at " +
+                    "FROM purchase_requisition " +
+                    "WHERE authority_code = ? " +
+                    "  AND (department_code = ? OR submitter_user_id = ?) " +
+                    "ORDER BY created_at DESC",
+                    authorityCode, departmentCode == null ? "" : departmentCode, userId);
+        }
+
+        // EMPLOYEE and others: own submissions only
+        return jdbc.queryForList(
+                "SELECT requisition_id, requisition_number, status, total_amount, " +
+                "       department_code, justification, created_at " +
+                "FROM purchase_requisition " +
+                "WHERE authority_code = ? AND submitter_user_id = ? " +
+                "ORDER BY created_at DESC",
+                authorityCode, userId);
     }
 
     // ---------------------------------------------------------------

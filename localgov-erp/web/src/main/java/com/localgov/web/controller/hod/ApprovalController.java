@@ -60,6 +60,51 @@ public class ApprovalController {
                 id, currentStatus, reason, userId(), primaryRole(), clientIp(), userAgent()));
     }
 
+    @PostMapping("/reopen")
+    @PreAuthorize("hasAnyRole('EMPLOYEE','HR','ADMIN','FINANCE','HEAD','SUPERADMIN')")
+    public ResponseEntity<Map<String, Object>> reopen(@PathVariable UUID id) {
+        return ResponseEntity.ok(service.returnToDraft(
+                id, userId(), primaryRole(), clientIp(), userAgent()));
+    }
+
+    @PostMapping("/revise")
+    @PreAuthorize("hasAnyRole('EMPLOYEE','HR','ADMIN','FINANCE','HEAD','SUPERADMIN')")
+    public ResponseEntity<Map<String, Object>> revise(
+            @PathVariable UUID id,
+            @RequestBody Map<String, Object> body) {
+        String justification = (String) body.get("justification");
+        String requiredByDateStr = (String) body.get("requiredByDate");
+        java.time.LocalDate requiredByDate = requiredByDateStr != null
+                ? java.time.LocalDate.parse(requiredByDateStr) : null;
+
+        @SuppressWarnings("unchecked")
+        java.util.List<Map<String, Object>> linesData =
+                (java.util.List<Map<String, Object>>) body.get("lines");
+
+        java.util.List<com.localgov.service.hod.RequisitionService.LineRequest> lines =
+                linesData.stream()
+                        .map(l -> new com.localgov.service.hod.RequisitionService.LineRequest(
+                                UUID.fromString((String) l.get("budgetLineId")),
+                                (String) l.get("itemDescription"),
+                                (String) l.get("technicalSpecification"),
+                                ((Number) l.get("quantity")).intValue(),
+                                new java.math.BigDecimal(l.get("unitCost").toString())))
+                        .toList();
+
+        service.updateReturnedRequisition(id, justification, requiredByDate, lines, userId());
+        return ResponseEntity.ok(Map.of("success", true, "requisitionId", id));
+    }
+
+    @PostMapping("/amend-return-reason")
+    @PreAuthorize("hasAnyRole('HEAD','FINANCE','CONTROLLING_OFFICER','ADMIN','SUPERADMIN')")
+    public ResponseEntity<Map<String, Object>> amendReturnReason(
+            @PathVariable UUID id,
+            @RequestBody Map<String, String> body) {
+        String newReason = body.get("newReason");
+        return ResponseEntity.ok(service.amendReturnReason(
+                id, newReason, userId(), primaryRole(), clientIp(), userAgent()));
+    }
+
     @PostMapping("/reject")
     @PreAuthorize("hasAnyRole('HEAD','FINANCE','CONTROLLING_OFFICER','ADMIN','SUPERADMIN')")
     public ResponseEntity<Map<String, Object>> reject(
