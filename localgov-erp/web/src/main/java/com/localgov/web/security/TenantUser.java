@@ -14,6 +14,7 @@ import java.util.Collection;
  */
 public class TenantUser extends User implements TenantUserDetails {
 
+    private final Long userId;
     private final String authorityCode;
     private final String employeeId;
     private final boolean superadmin;
@@ -29,7 +30,7 @@ public class TenantUser extends User implements TenantUserDetails {
                       String employeeId) {
         this(username, password, enabled, accountNonExpired,
              credentialsNonExpired, accountNonLocked, authorities,
-             authorityCode, employeeId, false);
+             authorityCode, employeeId, false, null);
     }
 
     public TenantUser(String username,
@@ -41,12 +42,18 @@ public class TenantUser extends User implements TenantUserDetails {
                       Collection<? extends GrantedAuthority> authorities,
                       String authorityCode,
                       String employeeId,
-                      boolean superadmin) {
+                      boolean superadmin,
+                      Long userId) {
         super(username, password, enabled, accountNonExpired,
               credentialsNonExpired, accountNonLocked, authorities);
         this.authorityCode = authorityCode;
         this.employeeId = employeeId;
         this.superadmin = superadmin;
+        this.userId = userId;
+    }
+
+    public Long getUserId() {
+        return userId;
     }
 
     @Override

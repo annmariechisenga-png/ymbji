@@ -69,7 +69,8 @@ public class DatabaseUserDetailsService implements UserDetailsService {
                 authorities,
                 authorityCode,
                 account.getEmployeeId(),
-                superadmin
+                superadmin,
+                account.getId()
         );
     }
 
