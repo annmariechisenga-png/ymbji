@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Requisition Detail — LocalGov ERP</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; background: #f5f5f0; color: #1a1a1a; }
+
+  header {
+    background: #1a3a1a; color: #fff; padding: 16px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header .nav { display: flex; gap: 16px; align-items: center; }
+  header .nav a { color: #fff; text-decoration: none; font-size: 13px; opacity: 0.85; }
+  header .nav a:hover { opacity: 1; }
+  header .user-chip {
+    background: rgba(255,255,255,0.15); padding: 6px 12px;
+    border-radius: 20px; font-size: 13px;
+  }
+
+  .container { max-width: 1100px; margin: 24px auto; padding: 0 24px; }
+
+  .page-header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 24px; gap: 16px; flex-wrap: wrap;
+  }
+  .page-header .title-block h1 {
+    font-size: 24px; font-weight: 600; color: #1a3a1a;
+    font-family: 'SF Mono', Monaco, monospace;
+    margin-bottom: 4px;
+  }
+  .page-header .title-block .meta {
+    font-size: 13px; color: #666;
+    display: flex; gap: 16px; flex-wrap: wrap;
+  }
+  .page-header .title-block .meta span { display: flex; align-items: center; gap: 4px; }
+  .page-header .amount-block { text-align: right; }
+  .page-header .amount-block .label {
+    font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .page-header .amount-block .value {
+    font-size: 32px; font-weight: 600; color: #1a3a1a; margin-top: 4px;
+  }
+
+  .badge {
+    display: inline-block; padding: 4px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 500; text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .badge.status-DRAFT { background: #e8e8e8; color: #666; }
+  .badge.status-SUBMITTED { background: #e0e8f0; color: #1a3a5c; }
+  .badge.status-HOD_ENDORSED { background: #e8f0e8; color: #1a3a1a; }
+  .badge.status-FINANCE_CONFIRMED { background: #fff0d0; color: #7a5a20; }
+  .badge.status-AUTHORISED { background: #d8e8d8; color: #1a3a1a; }
+  .badge.status-REFERRED_TO_PROCUREMENT_COMMITTEE { background: #f0e8d0; color: #7a5a20; }
+  .badge.status-COMMITTEE_APPROVED { background: #d8e8d8; color: #1a3a1a; }
+  .badge.status-COMMITTEE_REJECTED { background: #f0e0e0; color: #8b2020; }
+  .badge.status-RETURNED_FOR_REVISION { background: #f0e0e0; color: #8b2020; }
+  .badge.status-REJECTED { background: #f0e0e0; color: #8b2020; }
+
+  .card {
+    background: #fff; border-radius: 12px; padding: 24px;
+    margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  }
+  .card h2 {
+    font-size: 15px; font-weight: 600; color: #1a3a1a;
+    margin-bottom: 16px; padding-bottom: 12px;
+    border-bottom: 1px solid #e8e8e8;
+  }
+
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 32px; }
+  .detail-item label {
+    font-size: 11px; color: #999; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .detail-item .value { font-size: 14px; color: #1a1a1a; margin-top: 4px; }
+  .detail-grid .full { grid-column: 1 / -1; }
+
+  .justification-text {
+    padding: 12px 16px; background: #f9f9f7;
+    border-left: 3px solid #c9a227;
+    border-radius: 4px; font-size: 14px; line-height: 1.6;
+    white-space: pre-wrap;
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; padding: 10px 12px; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; color: #666; background: #f9f9f7;
+    border-bottom: 1px solid #e0e0e0;
+  }
+  th.right { text-align: right; }
+  td { padding: 12px; font-size: 13px; border-bottom: 1px solid #f0f0f0; }
+  td.right { text-align: right; }
+  .spec-line { font-size: 11px; color: #666; margin-top: 4px; }
+  tfoot td {
+    border-top: 2px solid #1a3a1a;
+    font-weight: 600; font-size: 14px;
+    padding: 12px; background: #f9f9f7;
+  }
+
+  .btn {
+    padding: 10px 20px; border-radius: 6px; font-family: inherit;
+    font-size: 14px; font-weight: 500; cursor: pointer; border: none;
+    transition: opacity 0.2s;
+  }
+  .btn-primary { background: #1a3a1a; color: #fff; }
+  .btn-primary:hover:not(:disabled) { opacity: 0.9; }
+  .btn-secondary { background: #e8f0e8; color: #1a3a1a; }
+  .btn-secondary:hover { opacity: 0.85; }
+  .btn-warn { background: #f0e8d0; color: #7a5a20; }
+  .btn-warn:hover { opacity: 0.85; }
+  .btn-danger { background: #f0e0e0; color: #8b2020; }
+  .btn-danger:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+  .actions-bar {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding-top: 16px; border-top: 1px solid #e8e8e8;
+    margin-top: 16px;
+  }
+  .actions-bar .spacer { flex: 1; }
+
+  /* Timeline */
+  .timeline { position: relative; padding-left: 32px; }
+  .timeline::before {
+    content: ''; position: absolute; left: 11px; top: 12px; bottom: 12px;
+    width: 2px; background: #e0e0e0;
+  }
+  .timeline-event { position: relative; margin-bottom: 20px; }
+  .timeline-event::before {
+    content: ''; position: absolute; left: -26px; top: 4px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #1a3a1a; border: 3px solid #f5f5f0;
+    box-sizing: content-box;
+  }
+  .timeline-event.event-RETURN::before,
+  .timeline-event.event-REJECT::before,
+  .timeline-event.event-RETURN_REASON_AMENDED::before { background: #b02020; }
+  .timeline-event.event-REOPEN_FOR_EDIT::before,
+  .timeline-event.event-UPDATED_IN_REVISION::before { background: #c9a227; }
+  .timeline-event.event-CO_AUTHORISE::before,
+  .timeline-event.event-CO_REFER_TO_COMMITTEE::before { background: #1a3a1a; }
+
+  .timeline-event .event-header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 4px; gap: 12px;
+  }
+  .timeline-event .event-type {
+    font-size: 13px; font-weight: 600; color: #1a1a1a;
+  }
+  .timeline-event .event-time {
+    font-size: 11px; color: #999;
+  }
+  .timeline-event .event-detail {
+    font-size: 12px; color: #666; line-height: 1.5;
+  }
+  .timeline-event .event-detail strong { color: #1a1a1a; }
+  .timeline-event .event-hash {
+    margin-top: 4px; font-family: 'SF Mono', Monaco, monospace;
+    font-size: 10px; color: #999; word-break: break-all;
+  }
+  .timeline-event .event-note {
+    margin-top: 8px; padding: 8px 12px;
+    background: #f9f9f7; border-left: 3px solid #c9a227;
+    border-radius: 4px; font-size: 12px; color: #1a1a1a;
+  }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; padding: 12px 20px;
+    background: #1a3a1a; color: #fff; border-radius: 8px; font-size: 14px;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 200;
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { background: #8b2020; }
+
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    display: none; align-items: center; justify-content: center;
+    z-index: 300; padding: 24px;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: #fff; border-radius: 12px; padding: 24px;
+    max-width: 500px; width: 100%; max-height: 90vh; overflow-y: auto;
+  }
+  .modal h3 { font-size: 16px; margin-bottom: 12px; color: #1a3a1a; }
+  .modal .field { display: flex; flex-direction: column; margin-bottom: 16px; }
+  .modal .field label {
+    font-size: 12px; color: #666; font-weight: 500; margin-bottom: 6px;
+  }
+  .modal .field textarea {
+    padding: 10px 12px; border: 1px solid #d0d0d0; border-radius: 6px;
+    font-family: inherit; font-size: 14px; min-height: 100px; resize: vertical;
+  }
+  .modal .field textarea:focus {
+    outline: none; border-color: #1a3a1a;
+    box-shadow: 0 0 0 2px rgba(26,58,26,0.1);
+  }
+  .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+  .loading { padding: 48px; text-align: center; color: #666; font-size: 14px; }
+
+  @media (max-width: 768px) {
+    .detail-grid { grid-template-columns: 1fr; }
+    .page-header { flex-direction: column; }
+    .page-header .amount-block { text-align: left; }
+  }
+</style>
+<script src="/employee/shared/auth.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>Requisition Detail</h1>
+  <div class="nav">
+    <a href="/employee/hod-dashboard.html">← Dashboard</a>
+    <a href="/employee/requisition-list.html?filter=mine">My Requisitions</a>
+    <div class="user-chip" id="userChip">Loading...</div>
+  </div>
+</header>
+
+<div class="container" id="main">
+  <div class="loading">Loading requisition...</div>
+</div>
+
+<div class="modal-backdrop" id="returnModal">
+  <div class="modal">
+    <h3>Return for Revision</h3>
+    <div class="field">
+      <label>Reason <span style="color:#b02020">*</span></label>
+      <textarea id="returnReason" placeholder="Explain what needs to be corrected..."></textarea>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary" onclick="closeModal('returnModal')">Cancel</button>
+      <button class="btn btn-warn" onclick="confirmReturn()">Return</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="rejectModal">
+  <div class="modal">
+    <h3>Reject Requisition</h3>
+    <div class="field">
+      <label>Reason <span style="color:#b02020">*</span></label>
+      <textarea id="rejectReason" placeholder="Explain why this requisition is being rejected..."></textarea>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary" onclick="closeModal('rejectModal')">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmReject()">Reject</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------------------------------------------------------------
+// Auth guard
+// ---------------------------------------------------------------
+const user = ERP.currentUser();
+if (!user) { throw new Error('Not authenticated'); }
+const token = user.token;
+// Compatibility shim: legacy code expects user.role / user.id / user.fullName
+Object.defineProperty(user, 'role', {
+  get: () => user.positionId || (user.roles && user.roles[0]) || 'EMPLOYEE'
+});
+Object.defineProperty(user, 'id', {
+  get: () => user.employeeId
+});
+Object.defineProperty(user, 'fullName', {
+  get: () => user.employeeName
+});
+Object.defineProperty(user, 'departmentCode', {
+  get: () => user.department || '01'
+});
+
+// ---------------------------------------------------------------
+// State
+// ---------------------------------------------------------------
+const params = new URLSearchParams(window.location.search);
+const reqId = params.get('id');
+if (!reqId) {
+  document.getElementById('main').innerHTML = '<div class="card"><p>Missing requisition ID. <a href="/employee/requisition-list.html">Go to requisitions list</a>.</p></div>';
+  throw new Error('Missing requisition ID');
+}
+let requisition = null;
+let pendingAction = null;
+
+// ---------------------------------------------------------------
+// API wrapper
+// ---------------------------------------------------------------
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': 'application/json',
+      ...(opts.headers || {})
+    }
+  });
+  if (res.status === 401) {
+    localStorage.clear();
+    window.location.href = '/employee/login.html';
+    return;
+  }
+  if (!res.ok) throw new Error(await res.text());
+  const text = await res.text();
+  return text ? JSON.parse(text) : {};
+}
+
+function toast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ---------------------------------------------------------------
+// Load requisition
+// ---------------------------------------------------------------
+async function load() {
+  try {
+    requisition = await api('/requisitions/' + reqId);
+    render();
+  } catch (e) {
+    document.getElementById('main').innerHTML =
+      '<div class="card"><p>Failed to load requisition: ' + escapeHtml(e.message) + '</p></div>';
+    toast('Load failed', true);
+  }
+}
+
+// ---------------------------------------------------------------
+// Render
+// ---------------------------------------------------------------
+function render() {
+  const r = requisition;
+  const status = r.status || 'DRAFT';
+  const lines = r.lines || [];
+  const events = r.approval_events || r.approvalEvents || [];
+
+  const total = lines.reduce((sum, l) => sum + Number(l.line_total || (l.quantity * l.unit_cost) || 0), 0);
+
+  const html = `
+    <div class="page-header">
+      <div class="title-block">
+        <h1>${escapeHtml(r.requisition_number || '—')}</h1>
+        <div class="meta">
+          <span class="badge status-${status}">${statusLabel(status)}</span>
+          <span>Dept: ${escapeHtml(r.department_code || '—')}</span>
+          <span>Submitted by: ${escapeHtml(String(r.submitter_user_id || '—'))}</span>
+          <span>Created: ${formatDate(r.created_at)}</span>
+        </div>
+      </div>
+      <div class="amount-block">
+        <div class="label">Total Requisition</div>
+        <div class="value">K ${formatK(total)}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Requisition Details</h2>
+      <div class="detail-grid">
+        <div class="detail-item full">
+          <label>Justification</label>
+          <div class="justification-text">${escapeHtml(r.justification || '—')}</div>
+        </div>
+        <div class="detail-item">
+          <label>Required By</label>
+          <div class="value">${formatDate(r.required_by_date) || '—'}</div>
+        </div>
+        <div class="detail-item">
+          <label>Procurement Plan Reference</label>
+          <div class="value">${escapeHtml(r.approved_procurement_plan_reference || '—')}</div>
+        </div>
+        ${r.finance_reference ? `
+          <div class="detail-item">
+            <label>Finance Reference</label>
+            <div class="value">${escapeHtml(r.finance_reference)}</div>
+          </div>
+        ` : ''}
+        ${r.return_reason ? `
+          <div class="detail-item full">
+            <label>Return Reason</label>
+            <div class="value" style="color:#8b2020;padding:8px 12px;background:#f9f9f7;border-radius:4px;">${escapeHtml(r.return_reason)}</div>
+          </div>
+        ` : ''}
+        ${r.rejection_reason ? `
+          <div class="detail-item full">
+            <label>Rejection Reason</label>
+            <div class="value" style="color:#8b2020;padding:8px 12px;background:#f9f9f7;border-radius:4px;">${escapeHtml(r.rejection_reason)}</div>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Line Items</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px">#</th>
+            <th>Description / Specification</th>
+            <th class="right">Qty</th>
+            <th class="right">Unit Cost</th>
+            <th class="right">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lines.map((l, i) => `
+            <tr>
+              <td>${i + 1}</td>
+              <td>
+                <div>${escapeHtml(l.item_description || '—')}</div>
+                ${l.technical_specification ? '<div class="spec-line">' + escapeHtml(l.technical_specification) + '</div>' : ''}
+              </td>
+              <td class="right">${l.quantity || 0}</td>
+              <td class="right">K ${formatK(l.unit_cost)}</td>
+              <td class="right">K ${formatK(l.line_total || (l.quantity * l.unit_cost))}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="4" style="text-align:right">Total</td>
+            <td class="right">K ${formatK(total)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      ${renderActions(status, r)}
+    </div>
+
+    <div class="card">
+      <h2>Audit Trail</h2>
+      <div class="timeline">
+        ${events.length === 0 ? '<p style="color:#999;font-size:13px;">No approval events yet.</p>' :
+          events.map(ev => renderEvent(ev)).join('')}
+      </div>
+    </div>
+  `;
+
+  document.getElementById('main').innerHTML = html;
+}
+
+function renderEvent(ev) {
+  const type = ev.event_type || '';
+  const label = {
+    SUBMIT: 'Submitted for Approval',
+    HOD_ENDORSE: 'Endorsed by HoD',
+    FINANCE_CONFIRM: 'Funds Confirmed by Finance',
+    CO_AUTHORISE: 'Authorised by Controlling Officer',
+    CO_REFER_TO_COMMITTEE: 'Referred to Procurement Committee',
+    RETURN: 'Returned for Revision',
+    REJECT: 'Rejected',
+    REOPEN_FOR_EDIT: 'Reopened for Editing',
+    UPDATED_IN_REVISION: 'Updated in Revision',
+    RETURN_REASON_AMENDED: 'Return Reason Amended'
+  }[type] || type;
+
+  const hashPreview = (ev.signature_hash || '').substring(0, 16) + '...';
+
+  return `
+    <div class="timeline-event event-${type}">
+      <div class="event-header">
+        <div class="event-type">${escapeHtml(label)}</div>
+        <div class="event-time">${formatDateTime(ev.event_at)}</div>
+      </div>
+      <div class="event-detail">
+        <strong>${escapeHtml(ev.actor_role || 'UNKNOWN')}</strong>
+        ${ev.from_status && ev.to_status ? ' &middot; ' + escapeHtml(ev.from_status) + ' → ' + escapeHtml(ev.to_status) : ''}
+        ${ev.actor_ip ? ' &middot; IP ' + escapeHtml(ev.actor_ip) : ''}
+      </div>
+      <div class="event-hash" title="Signature hash: ${escapeHtml(ev.signature_hash || '')}">Hash: ${escapeHtml(hashPreview)}</div>
+    </div>
+  `;
+}
+
+function renderActions(status, r) {
+  const submitterId = r.submitter_user_id;
+  const userId = user.id;
+  const role = (user.role || '').toUpperCase();
+
+  const isSubmitter = submitterId === userId;
+  const isHod = role.includes('HEAD') || role.includes('DIRECTOR');
+  const isFinance = role.includes('FINANCE');
+  const isCO = role.includes('CONTROLLING_OFFICER');
+  const isAdmin = role.includes('ADMIN') || role.includes('SUPERADMIN');
+
+  const buttons = [];
+
+  if (status === 'DRAFT' && isSubmitter) {
+    buttons.push('<button class="btn btn-primary" onclick="doSubmit()">Submit for Approval</button>');
+  }
+
+  if (status === 'SUBMITTED' && (isHod || isAdmin)) {
+    buttons.push('<button class="btn btn-primary" onclick="doEndorse()">Endorse</button>');
+    buttons.push('<button class="btn btn-warn" onclick="openModal(\'returnModal\')">Return</button>');
+    buttons.push('<button class="btn btn-danger" onclick="openModal(\'rejectModal\')">Reject</button>');
+  }
+
+  if (status === 'HOD_ENDORSED' && (isFinance || isAdmin)) {
+    buttons.push('<button class="btn btn-primary" onclick="doFinanceConfirm()">Confirm Funds &amp; Commitment</button>');
+    buttons.push('<button class="btn btn-warn" onclick="openModal(\'returnModal\')">Return</button>');
+    buttons.push('<button class="btn btn-danger" onclick="openModal(\'rejectModal\')">Reject</button>');
+  }
+
+  if (status === 'FINANCE_CONFIRMED' && (isCO || isAdmin)) {
+    const total = r.total_amount || 0;
+    if (Number(total) <= 500000) {
+      buttons.push('<button class="btn btn-primary" onclick="doCOAction()">Authorise (≤ K500K)</button>');
+    } else {
+      buttons.push('<button class="btn btn-primary" onclick="doCOAction()">Refer to Procurement Committee (&gt; K500K)</button>');
+    }
+    buttons.push('<button class="btn btn-warn" onclick="openModal(\'returnModal\')">Return</button>');
+    buttons.push('<button class="btn btn-danger" onclick="openModal(\'rejectModal\')">Reject</button>');
+  }
+
+  if (status === 'RETURNED_FOR_REVISION' && (isSubmitter || isAdmin)) {
+    buttons.push('<button class="btn btn-primary" onclick="doReopen()">Reopen for Edit</button>');
+    buttons.push('<a href="/employee/requisition-new.html?id=' + reqId + '&mode=revise" class="btn btn-secondary">Edit Revision</a>');
+  }
+
+  if (buttons.length === 0) return '';
+
+  return '<div class="actions-bar">' + buttons.join('') + '</div>';
+}
+
+// ---------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------
+async function doSubmit() {
+  if (!confirm('Submit for approval? You will not be able to edit until returned.')) return;
+  await postAction('/submit', {});
+}
+
+async function doEndorse() {
+  if (!confirm('Endorse this requisition and forward to Finance?')) return;
+  await postAction('/hod-endorse', {});
+}
+
+async function doFinanceConfirm() {
+  const ref = prompt('Finance reference (optional):');
+  if (ref === null) return;
+  await postAction('/finance-confirm', { financeReference: ref || null });
+}
+
+async function doCOAction() {
+  const label = Number(requisition.total_amount) <= 500000 ? 'Authorise' : 'Refer to Procurement Committee';
+  if (!confirm(label + ' this requisition?')) return;
+  await postAction('/controlling-officer-action', {});
+}
+
+async function doReopen() {
+  await postAction('/reopen', {});
+}
+
+function openModal(id) {
+  document.getElementById(id).classList.add('show');
+  setTimeout(() => {
+    const ta = document.getElementById(id).querySelector('textarea');
+    if (ta) ta.focus();
+  }, 50);
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('show');
+  document.getElementById(id).querySelector('textarea').value = '';
+  pendingAction = null;
+}
+
+async function confirmReturn() {
+  const reason = document.getElementById('returnReason').value.trim();
+  if (!reason) {
+    toast('Reason is required', true);
+    return;
+  }
+  await postAction('/return', {
+    currentStatus: requisition.status,
+    reason: reason
+  });
+  closeModal('returnModal');
+}
+
+async function confirmReject() {
+  const reason = document.getElementById('rejectReason').value.trim();
+  if (!reason) {
+    toast('Reason is required', true);
+    return;
+  }
+  await postAction('/reject', {
+    currentStatus: requisition.status,
+    reason: reason
+  });
+  closeModal('rejectModal');
+}
+
+async function postAction(endpoint, body) {
+  try {
+    await api('/requisitions/' + reqId + '/action' + endpoint, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+    toast('Action successful');
+    await load();
+  } catch (e) {
+    toast('Action failed: ' + e.message, true);
+  }
+}
+
+// ---------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------
+function statusLabel(s) {
+  return {
+    DRAFT: 'Draft',
+    SUBMITTED: 'Submitted',
+    HOD_ENDORSED: 'HoD Endorsed',
+    FINANCE_CONFIRMED: 'Finance Confirmed',
+    AUTHORISED: 'Authorised',
+    REFERRED_TO_PROCUREMENT_COMMITTEE: 'Referred to Committee',
+    COMMITTEE_APPROVED: 'Committee Approved',
+    COMMITTEE_REJECTED: 'Committee Rejected',
+    RETURNED_FOR_REVISION: 'Returned for Revision',
+    REJECTED: 'Rejected'
+  }[s] || s;
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function formatK(n) {
+  return Number(n || 0).toLocaleString('en-ZM', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function formatDateTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  return d.toLocaleString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  });
+}
+
+// ---------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------
+load();
+</script>
+</body>
+</html>

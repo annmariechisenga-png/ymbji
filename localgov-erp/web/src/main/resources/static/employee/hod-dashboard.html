@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HoD Dashboard — LocalGov ERP</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; background: #f5f5f0; color: #1a1a1a; }
+
+  header {
+    background: #1a3a1a; color: #fff; padding: 16px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header .nav { display: flex; gap: 16px; align-items: center; }
+  header .nav a { color: #fff; text-decoration: none; font-size: 13px; opacity: 0.85; }
+  header .nav a:hover { opacity: 1; }
+  header .user-chip {
+    background: rgba(255,255,255,0.15); padding: 6px 12px;
+    border-radius: 20px; font-size: 13px;
+  }
+
+  .container { max-width: 1200px; margin: 24px auto; padding: 0 24px; }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid #d0d0d0; }
+  .tab {
+    padding: 12px 20px; font-size: 14px; font-weight: 500;
+    color: #666; cursor: pointer; border: none; background: none;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tab:hover { color: #1a3a1a; }
+  .tab.active { color: #1a3a1a; border-bottom-color: #1a3a1a; }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  .stat-card {
+    background: #fff; border-radius: 12px; padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  }
+  .stat-card .label { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 24px; font-weight: 600; color: #1a3a1a; margin-top: 6px; }
+  .stat-card .meta { font-size: 12px; color: #999; margin-top: 4px; }
+  .stat-card.warn .value { color: #8b6a20; }
+  .stat-card.danger .value { color: #8b2020; }
+
+  .table-wrap { background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; padding: 12px 16px; font-size: 12px; font-weight: 600;
+    text-transform: uppercase; color: #666; background: #f9f9f7;
+    border-bottom: 1px solid #e0e0e0;
+  }
+  td { padding: 14px 16px; font-size: 13px; border-bottom: 1px solid #f0f0f0; }
+  tr:hover td { background: #f9f9f7; }
+  .activity-name { font-weight: 500; color: #1a1a1a; }
+  .activity-meta { font-size: 11px; color: #666; margin-top: 2px; }
+
+  .utilisation { display: flex; align-items: center; gap: 8px; }
+  .util-bar {
+    flex: 1; height: 6px; background: #e0e0e0;
+    border-radius: 3px; overflow: hidden; min-width: 60px;
+  }
+  .util-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+  .util-fill.ok { background: #1a3a1a; }
+  .util-fill.warn { background: #c9a227; }
+  .util-fill.danger { background: #b02020; }
+  .util-pct { font-size: 12px; font-weight: 500; min-width: 40px; text-align: right; }
+
+  .badge {
+    display: inline-block; padding: 3px 8px; border-radius: 12px;
+    font-size: 11px; font-weight: 500; text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .badge.status-SUBMITTED { background: #e0e8f0; color: #1a3a5c; }
+  .badge.status-HOD_ENDORSED { background: #e8f0e8; color: #1a3a1a; }
+  .badge.status-FINANCE_CONFIRMED { background: #fff0d0; color: #7a5a20; }
+  .badge.status-DRAFT { background: #e8e8e8; color: #666; }
+  .badge.status-RETURNED_FOR_REVISION { background: #f0e0e0; color: #8b2020; }
+
+  .btn {
+    padding: 8px 16px; border-radius: 6px; font-family: inherit;
+    font-size: 13px; font-weight: 500; cursor: pointer; border: none;
+    transition: opacity 0.2s;
+  }
+  .btn-primary { background: #1a3a1a; color: #fff; }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-secondary { background: #e8f0e8; color: #1a3a1a; }
+  .btn-secondary:hover { opacity: 0.85; }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+  .empty { padding: 48px 24px; text-align: center; color: #666; font-size: 14px; }
+  .empty .icon { font-size: 32px; margin-bottom: 12px; opacity: 0.5; }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; padding: 12px 20px;
+    background: #1a3a1a; color: #fff; border-radius: 8px; font-size: 14px;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { background: #8b2020; }
+
+  .loading { padding: 24px; text-align: center; color: #666; font-size: 13px; }
+
+  @media (max-width: 768px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    th, td { padding: 10px 8px; }
+  }
+</style>
+<script src="/employee/shared/auth.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>HoD Dashboard</h1>
+  <div class="nav">
+    <a href="/employee/portal.html">← Portal</a>
+    <a href="/employee/requisition-list.html?filter=mine">My Requisitions</a>
+    <a href="/employee/requisition-new.html" class="btn btn-primary btn-sm">+ New Requisition</a>
+    <div class="user-chip" id="userChip">Loading...</div>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="tabs">
+    <button class="tab active" data-tab="budget">My Budget</button>
+    <button class="tab" data-tab="approvals">Pending Approvals</button>
+  </div>
+
+  <div class="tab-content active" id="tab-budget">
+    <div class="stats" id="budgetStats">
+      <div class="stat-card"><div class="label">Total Budget</div><div class="value" id="statBudget">—</div><div class="meta">Current fiscal year</div></div>
+      <div class="stat-card"><div class="label">Committed</div><div class="value" id="statCommitted">—</div><div class="meta">Approved + pending</div></div>
+      <div class="stat-card"><div class="label">Available</div><div class="value" id="statAvailable">—</div><div class="meta">Spendable balance</div></div>
+      <div class="stat-card"><div class="label">Utilisation</div><div class="value" id="statUtil">—</div><div class="meta">Committed / budget</div></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Activity</th>
+            <th>Account</th>
+            <th style="text-align:right">Approved (K)</th>
+            <th style="text-align:right">Committed (K)</th>
+            <th style="text-align:right">Available (K)</th>
+            <th>Utilisation</th>
+            <th>Qty (avail / appr)</th>
+          </tr>
+        </thead>
+        <tbody id="budgetBody">
+          <tr><td colspan="7" class="loading">Loading budget lines...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-approvals">
+    <div class="stats" id="approvalStats">
+      <div class="stat-card"><div class="label">Pending</div><div class="value" id="statPending">—</div><div class="meta">Awaiting my action</div></div>
+      <div class="stat-card"><div class="label">Total Value</div><div class="value" id="statPendingValue">—</div><div class="meta">Sum of pending K</div></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Requisition #</th>
+            <th>Department</th>
+            <th>Submitted</th>
+            <th style="text-align:right">Amount (K)</th>
+            <th>Justification</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="approvalsBody">
+          <tr><td colspan="6" class="loading">Loading pending approvals...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------------------------------------------------------------
+// Auth guard
+// ---------------------------------------------------------------
+const user = ERP.currentUser();
+if (!user) { throw new Error('Not authenticated'); }
+const token = user.token;
+// Compatibility shim: legacy code expects user.role / user.id / user.fullName
+Object.defineProperty(user, 'role', {
+  get: () => user.positionId || (user.roles && user.roles[0]) || 'EMPLOYEE'
+});
+Object.defineProperty(user, 'id', {
+  get: () => user.employeeId
+});
+Object.defineProperty(user, 'fullName', {
+  get: () => user.employeeName
+});
+Object.defineProperty(user, 'departmentCode', {
+  get: () => user.department || '01'
+});
+
+// ---------------------------------------------------------------
+// API wrapper
+// ---------------------------------------------------------------
+async function api(path) {
+  const res = await fetch(path, {
+    headers: { 'Authorization': 'Bearer ' + token }
+  });
+  if (res.status === 401) {
+    localStorage.clear();
+    window.location.href = '/employee/login.html';
+    return;
+  }
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return res.json();
+}
+
+// ---------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------
+function toast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function fmtK(amount) {
+  if (amount == null) return '—';
+  const n = Number(amount);
+  return n.toLocaleString('en-ZM', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function utilClass(pct) {
+  if (pct >= 90) return 'danger';
+  if (pct >= 70) return 'warn';
+  return 'ok';
+}
+
+// ---------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const target = tab.dataset.tab;
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
+    document.querySelectorAll('.tab-content').forEach(c =>
+      c.classList.toggle('active', c.id === 'tab-' + target));
+    if (target === 'approvals') loadApprovals();
+    if (target === 'budget') loadBudget();
+  });
+});
+
+// ---------------------------------------------------------------
+// Load budget tab
+// ---------------------------------------------------------------
+async function loadBudget() {
+  const body = document.getElementById('budgetBody');
+  try {
+    const data = await api('/hod-dashboard/my-budget');
+    if (!data || data.length === 0) {
+      body.innerHTML = '<tr><td colspan="7" class="empty"><div class="icon">📊</div>No budget lines assigned to your department yet.</td></tr>';
+      updateStats([], 0, 0, 0);
+      return;
+    }
+    let totalBudget = 0, totalCommitted = 0, totalAvailable = 0;
+    body.innerHTML = data.map(line => {
+      const approved = Number(line.original_budget || 0);
+      const committed = Number(line.committed_amount || 0);
+      const available = Number(line.available_balance || (approved - committed));
+      const pct = approved > 0 ? (committed / approved * 100) : 0;
+      const cls = utilClass(pct);
+      totalBudget += approved;
+      totalCommitted += committed;
+      totalAvailable += available;
+
+      const approvedQty = line.approved_quantity || 0;
+      const committedQty = line.committed_quantity || 0;
+      const availQty = approvedQty - committedQty;
+
+      return `
+        <tr>
+          <td>
+            <div class="activity-name">${escapeHtml(line.activity_description || line.activity_code || '—')}</div>
+            <div class="activity-meta">${escapeHtml(line.activity_code || '')}</div>
+          </td>
+          <td>
+            <div class="activity-name">${escapeHtml(line.account_name || '—')}</div>
+            <div class="activity-meta">${escapeHtml(line.account_code || '')}</div>
+          </td>
+          <td style="text-align:right">${fmtK(approved)}</td>
+          <td style="text-align:right">${fmtK(committed)}</td>
+          <td style="text-align:right">${fmtK(available)}</td>
+          <td>
+            <div class="utilisation">
+              <div class="util-bar"><div class="util-fill ${cls}" style="width:${Math.min(pct,100)}%"></div></div>
+              <span class="util-pct">${pct.toFixed(0)}%</span>
+            </div>
+          </td>
+          <td style="font-size:12px">${availQty} / ${approvedQty}</td>
+        </tr>`;
+    }).join('');
+
+    updateStats(data, totalBudget, totalCommitted, totalAvailable);
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="7" class="empty"><div class="icon">⚠️</div>Failed to load budget: ' + escapeHtml(e.message) + '</td></tr>';
+    toast('Failed to load budget', true);
+  }
+}
+
+function updateStats(_, totalBudget, totalCommitted, totalAvailable) {
+  document.getElementById('statBudget').textContent = 'K ' + fmtK(totalBudget);
+  document.getElementById('statCommitted').textContent = 'K ' + fmtK(totalCommitted);
+  document.getElementById('statAvailable').textContent = 'K ' + fmtK(totalAvailable);
+  const pct = totalBudget > 0 ? (totalCommitted / totalBudget * 100) : 0;
+  document.getElementById('statUtil').textContent = pct.toFixed(1) + '%';
+  const card = document.getElementById('statUtil').parentElement;
+  card.className = 'stat-card ' + (pct >= 90 ? 'danger' : pct >= 70 ? 'warn' : '');
+}
+
+// ---------------------------------------------------------------
+// Load approvals tab
+// ---------------------------------------------------------------
+async function loadApprovals() {
+  const body = document.getElementById('approvalsBody');
+  try {
+    const data = await api('/requisitions/assigned-to-me');
+    if (!data || data.length === 0) {
+      body.innerHTML = '<tr><td colspan="6" class="empty"><div class="icon">✓</div>No pending approvals. You\'re all caught up.</td></tr>';
+      document.getElementById('statPending').textContent = '0';
+      document.getElementById('statPendingValue').textContent = 'K 0.00';
+      return;
+    }
+
+    let totalValue = 0;
+    body.innerHTML = data.map(r => {
+      const amount = Number(r.total_amount || 0);
+      totalValue += amount;
+      return `
+        <tr>
+          <td><a href="/employee/requisition-detail.html?id=${r.requisition_id}" style="color:#1a3a1a; font-weight:500; text-decoration:none;">${escapeHtml(r.requisition_number)}</a></td>
+          <td>${escapeHtml(r.department_code || '—')}</td>
+          <td>${formatDate(r.created_at)}</td>
+          <td style="text-align:right">${fmtK(amount)}</td>
+          <td style="font-size:12px; color:#666; max-width:300px">${escapeHtml(truncate(r.justification || '', 80))}</td>
+          <td>
+            <a href="/employee/requisition-detail.html?id=${r.requisition_id}" class="btn btn-secondary btn-sm">Review</a>
+          </td>
+        </tr>`;
+    }).join('');
+
+    document.getElementById('statPending').textContent = data.length;
+    document.getElementById('statPendingValue').textContent = 'K ' + fmtK(totalValue);
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="6" class="empty"><div class="icon">⚠️</div>Failed to load approvals: ' + escapeHtml(e.message) + '</td></tr>';
+    toast('Failed to load approvals', true);
+  }
+}
+
+// ---------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function truncate(s, len) {
+  return s.length > len ? s.substring(0, len) + '…' : s;
+}
+
+function formatDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+// ---------------------------------------------------------------
+// Initial load
+// ---------------------------------------------------------------
+loadBudget();
+</script>
+</body>
+</html>

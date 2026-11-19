@@ -46,6 +46,7 @@
   .toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; background: #1a3a1a; color: #fff; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
   .toast.show { opacity: 1; }
 </style>
+<script src="/employee/shared/auth.js"></script>
 </head>
 <body>
 
@@ -180,12 +181,10 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const token = localStorage.getItem('token');
-const userJson = localStorage.getItem('user');
-if (!token || !userJson) { window.location.href = '/employee/login.html'; }
-
-const user = JSON.parse(userJson || '{}');
-document.getElementById('userChip').textContent = (user.fullName || user.username || 'Employee') + ' / ' + (user.role || 'EMPLOYEE');
+const user = ERP.currentUser();
+if (!user) { throw new Error('Not authenticated'); }
+const token = user.token;
+document.getElementById('userChip').textContent = ERP.userChipText(user);
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {

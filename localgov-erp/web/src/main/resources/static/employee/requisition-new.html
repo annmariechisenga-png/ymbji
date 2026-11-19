@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New Requisition — LocalGov ERP</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; background: #f5f5f0; color: #1a1a1a; }
+
+  header {
+    background: #1a3a1a; color: #fff; padding: 16px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header .nav { display: flex; gap: 16px; align-items: center; }
+  header .nav a { color: #fff; text-decoration: none; font-size: 13px; opacity: 0.85; }
+  header .nav a:hover { opacity: 1; }
+  header .user-chip {
+    background: rgba(255,255,255,0.15); padding: 6px 12px;
+    border-radius: 20px; font-size: 13px;
+  }
+
+  .container { max-width: 1000px; margin: 24px auto; padding: 0 24px; }
+
+  .card {
+    background: #fff; border-radius: 12px; padding: 24px;
+    margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  }
+  .card h2 {
+    font-size: 15px; font-weight: 600; color: #1a3a1a;
+    margin-bottom: 16px; padding-bottom: 12px;
+    border-bottom: 1px solid #e8e8e8;
+  }
+
+  .field { display: flex; flex-direction: column; margin-bottom: 16px; }
+  .field label {
+    font-size: 12px; color: #666; font-weight: 500;
+    margin-bottom: 6px; letter-spacing: 0.3px;
+  }
+  .field .hint { font-size: 11px; color: #999; margin-top: 4px; font-weight: 400; }
+  .field input, .field select, .field textarea {
+    padding: 10px 12px; border: 1px solid #d0d0d0; border-radius: 6px;
+    font-family: inherit; font-size: 14px; background: #fff;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: #1a3a1a;
+    box-shadow: 0 0 0 2px rgba(26,58,26,0.1);
+  }
+  .field textarea { min-height: 80px; resize: vertical; }
+  .field input[disabled] { background: #f5f5f5; color: #666; cursor: not-allowed; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+  .line-item {
+    background: #f9f9f7; border-radius: 8px; padding: 16px;
+    margin-bottom: 12px; position: relative;
+  }
+  .line-item .remove-btn {
+    position: absolute; top: 8px; right: 8px;
+    background: #f0e0e0; color: #8b2020; border: none;
+    width: 24px; height: 24px; border-radius: 50%;
+    cursor: pointer; font-size: 16px; line-height: 1;
+  }
+  .line-item .remove-btn:hover { background: #e0c8c8; }
+  .line-item .line-total {
+    text-align: right; font-weight: 600; color: #1a3a1a;
+    font-size: 14px; padding-top: 8px; border-top: 1px dashed #d0d0d0;
+    margin-top: 12px;
+  }
+
+  .btn {
+    padding: 10px 20px; border-radius: 6px; font-family: inherit;
+    font-size: 14px; font-weight: 500; cursor: pointer; border: none;
+    transition: opacity 0.2s;
+  }
+  .btn-primary { background: #1a3a1a; color: #fff; }
+  .btn-primary:hover:not(:disabled) { opacity: 0.9; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary { background: #e8f0e8; color: #1a3a1a; }
+  .btn-secondary:hover { opacity: 0.85; }
+  .btn-danger { background: #f0e0e0; color: #8b2020; }
+  .btn-danger:hover { opacity: 0.85; }
+
+  .total-row {
+    display: flex; justify-content: space-between;
+    align-items: center; padding: 16px 0;
+    border-top: 2px solid #1a3a1a; margin-top: 16px;
+    font-weight: 600;
+  }
+  .total-row .label { font-size: 14px; color: #666; }
+  .total-row .value { font-size: 20px; color: #1a3a1a; }
+
+  .actions {
+    display: flex; gap: 12px; justify-content: flex-end;
+    padding: 24px 0;
+  }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; padding: 12px 20px;
+    background: #1a3a1a; color: #fff; border-radius: 8px; font-size: 14px;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 200;
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { background: #8b2020; }
+
+  .alert {
+    padding: 12px 16px; border-radius: 6px; margin-bottom: 16px;
+    font-size: 13px; display: flex; align-items: flex-start; gap: 8px;
+  }
+  .alert.info { background: #e0e8f0; color: #1a3a5c; }
+  .alert.warn { background: #fff0d0; color: #7a5a20; }
+  .alert.danger { background: #f0e0e0; color: #8b2020; }
+  .alert .icon { font-size: 16px; flex-shrink: 0; }
+
+  .loading { text-align: center; padding: 24px; color: #666; font-size: 13px; }
+</style>
+<script src="/employee/shared/auth.js"></script>
+</head>
+<body>
+
+<header>
+  <h1 id="pageTitle">New Requisition</h1>
+  <div class="nav">
+    <a href="/employee/hod-dashboard.html">← Dashboard</a>
+    <a href="/employee/requisition-list.html?filter=mine">My Requisitions</a>
+    <div class="user-chip" id="userChip">Loading...</div>
+  </div>
+</header>
+
+<div class="container">
+
+  <div id="modeAlert"></div>
+
+  <div class="card">
+    <h2>Requisition Details</h2>
+    <div class="grid-2">
+      <div class="field">
+        <label>Department</label>
+        <input id="department" disabled placeholder="Auto-filled from your profile">
+      </div>
+      <div class="field">
+        <label>Required By Date</label>
+        <input id="requiredBy" type="date">
+        <span class="hint">When do you need these items?</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>Justification <span style="color:#b02020">*</span></label>
+      <textarea id="justification" placeholder="Why is this purchase needed? Reference the Annual Procurement Plan where applicable."></textarea>
+      <span class="hint">This will be visible to the HoD, Finance, and Controlling Officer.</span>
+    </div>
+    <div class="field">
+      <label>Procurement Plan Reference</label>
+      <input id="planRef" placeholder="e.g., APP-2026-001">
+      <span class="hint">Reference to the Annual Procurement Plan line if applicable.</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Line Items</h2>
+    <div id="lineItemsContainer">
+      <div class="loading">Loading budget lines...</div>
+    </div>
+    <button id="addLineBtn" class="btn btn-secondary" style="margin-top:12px" disabled>+ Add Line Item</button>
+    <div class="total-row">
+      <span class="label">Total Requisition Value</span>
+      <span class="value" id="totalAmount">K 0.00</span>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-danger" onclick="window.location.href='/employee/requisition-list.html?filter=mine'">Cancel</button>
+    <button id="submitBtn" class="btn btn-primary" disabled>Create Requisition</button>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------------------------------------------------------------
+// Auth guard
+// ---------------------------------------------------------------
+const user = ERP.currentUser();
+if (!user) { throw new Error('Not authenticated'); }
+const token = user.token;
+// Compatibility shim: legacy code expects user.role / user.id / user.fullName
+Object.defineProperty(user, 'role', {
+  get: () => user.positionId || (user.roles && user.roles[0]) || 'EMPLOYEE'
+});
+Object.defineProperty(user, 'id', {
+  get: () => user.employeeId
+});
+Object.defineProperty(user, 'fullName', {
+  get: () => user.employeeName
+});
+Object.defineProperty(user, 'departmentCode', {
+  get: () => user.department || '01'
+});
+
+// ---------------------------------------------------------------
+// Parse mode from query params
+// ---------------------------------------------------------------
+const params = new URLSearchParams(window.location.search);
+const existingId = params.get('id');
+const mode = params.get('mode');
+const isRevise = !!(existingId && mode === 'revise');
+
+// ---------------------------------------------------------------
+// State
+// ---------------------------------------------------------------
+let budgetLines = [];
+let lines = [];
+
+if (isRevise) {
+  document.getElementById('pageTitle').textContent = 'Revise Requisition';
+  document.getElementById('submitBtn').textContent = 'Save Revision';
+  document.getElementById('modeAlert').innerHTML =
+    '<div class="alert info"><span class="icon">✎</span><div>You are editing a returned requisition. Changes will be saved in revision mode. Once saved, submit it again from the requisition list to re-enter the approval chain.</div></div>';
+}
+
+// ---------------------------------------------------------------
+// API wrapper
+// ---------------------------------------------------------------
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': 'application/json',
+      ...(opts.headers || {})
+    }
+  });
+  if (res.status === 401) {
+    localStorage.clear();
+    window.location.href = '/employee/login.html';
+    return;
+  }
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : {};
+}
+
+// ---------------------------------------------------------------
+// Toast
+// ---------------------------------------------------------------
+function toast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ---------------------------------------------------------------
+// Load budget lines + department
+// ---------------------------------------------------------------
+async function init() {
+  try {
+    // Load budget lines for this department
+    const budgetData = await api('/hod-dashboard/my-budget');
+    budgetLines = (budgetData || []).map(b => ({
+      id: b.line_id,
+      activity: b.activity_description || b.activity_code || '—',
+      account: b.account_name || b.account_code || '—',
+      available: Number(b.available_balance || 0),
+      approvedQty: Number(b.approved_quantity || 0),
+      committedQty: Number(b.committed_quantity || 0)
+    }));
+
+    // Department (from user profile — best effort)
+    document.getElementById('department').value = user.departmentCode || 'Your department';
+
+    if (isRevise) {
+      await loadExistingForRevision();
+    } else {
+      document.getElementById('lineItemsContainer').innerHTML = '';
+      addLine();
+    }
+    document.getElementById('addLineBtn').disabled = false;
+    updateSubmitState();
+  } catch (e) {
+    document.getElementById('lineItemsContainer').innerHTML =
+      '<div class="alert danger"><span class="icon">⚠️</span><div>Failed to load budget lines: ' +
+      escapeHtml(e.message) + '</div></div>';
+  }
+}
+
+async function loadExistingForRevision() {
+  const existing = await api('/requisitions/' + existingId);
+
+  document.getElementById('justification').value = existing.justification || '';
+  document.getElementById('requiredBy').value = existing.required_by_date || '';
+  // planRef not in the entity for revision — leave blank
+  document.getElementById('department').value = existing.department_code || '';
+
+  document.getElementById('lineItemsContainer').innerHTML = '';
+  (existing.lines || []).forEach(l => {
+    addLine({
+      budgetLineId: l.budget_line_id,
+      description: l.item_description,
+      spec: l.technical_specification,
+      qty: l.quantity,
+      unitCost: l.unit_cost
+    });
+  });
+}
+
+// ---------------------------------------------------------------
+// Line item management
+// ---------------------------------------------------------------
+function addLine(initial) {
+  const idx = lines.length;
+  const line = {
+    budgetLineId: initial?.budgetLineId || '',
+    description: initial?.description || '',
+    spec: initial?.spec || '',
+    qty: initial?.qty || 1,
+    unitCost: initial?.unitCost || 0
+  };
+  lines.push(line);
+  renderLines();
+}
+
+function removeLine(idx) {
+  if (lines.length <= 1) {
+    toast('At least one line item is required', true);
+    return;
+  }
+  lines.splice(idx, 1);
+  renderLines();
+}
+
+function updateLine(idx, field, value) {
+  lines[idx][field] = field === 'qty' ? parseInt(value) || 1
+                    : field === 'unitCost' ? parseFloat(value) || 0
+                    : value;
+  updateTotals();
+  updateSubmitState();
+}
+
+function renderLines() {
+  const container = document.getElementById('lineItemsContainer');
+  if (lines.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = lines.map((line, idx) => `
+    <div class="line-item">
+      ${lines.length > 1 ? '<button class="remove-btn" onclick="removeLine(' + idx + ')" title="Remove">×</button>' : ''}
+      <div class="field">
+        <label>Budget Line <span style="color:#b02020">*</span></label>
+        <select onchange="updateLine(${idx}, 'budgetLineId', this.value)">
+          <option value="">— Select budget line —</option>
+          ${budgetLines.map(bl => `
+            <option value="${bl.id}" ${bl.id === line.budgetLineId ? 'selected' : ''}>
+              ${escapeHtml(bl.activity)} / ${escapeHtml(bl.account)} — Available: K ${bl.available.toLocaleString()}
+            </option>
+          `).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>Item Description <span style="color:#b02020">*</span></label>
+        <input value="${escapeHtml(line.description)}"
+               onchange="updateLine(${idx}, 'description', this.value)"
+               placeholder="e.g., Laptop computers">
+      </div>
+      <div class="field">
+        <label>Technical Specification</label>
+        <textarea onchange="updateLine(${idx}, 'spec', this.value)"
+                  placeholder="Generic spec (no brand names per PPRA)">${escapeHtml(line.spec || '')}</textarea>
+      </div>
+      <div class="grid-3">
+        <div class="field">
+          <label>Quantity <span style="color:#b02020">*</span></label>
+          <input type="number" min="1" value="${line.qty}"
+                 onchange="updateLine(${idx}, 'qty', this.value)">
+        </div>
+        <div class="field">
+          <label>Unit Cost (K) <span style="color:#b02020">*</span></label>
+          <input type="number" min="0" step="0.01" value="${line.unitCost}"
+                 onchange="updateLine(${idx}, 'unitCost', this.value)">
+        </div>
+        <div class="field">
+          <label>Line Total</label>
+          <input value="K ${(line.qty * line.unitCost).toLocaleString('en-ZM', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}"
+                 disabled>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  updateTotals();
+}
+
+function updateTotals() {
+  const total = lines.reduce((sum, l) => sum + (l.qty * l.unitCost), 0);
+  document.getElementById('totalAmount').textContent =
+    'K ' + total.toLocaleString('en-ZM', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function updateSubmitState() {
+  const valid = lines.length > 0
+    && lines.every(l => l.budgetLineId && l.description && l.qty > 0 && l.unitCost >= 0)
+    && document.getElementById('justification').value.trim().length > 0;
+  document.getElementById('submitBtn').disabled = !valid;
+}
+
+// ---------------------------------------------------------------
+// Submit
+// ---------------------------------------------------------------
+async function submitForm() {
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.textContent = isRevise ? 'Saving...' : 'Creating...';
+
+  try {
+    const payload = {
+      justification: document.getElementById('justification').value.trim(),
+      requiredByDate: document.getElementById('requiredBy').value || null,
+      lines: lines.map(l => ({
+        budgetLineId: l.budgetLineId,
+        itemDescription: l.description,
+        technicalSpecification: l.spec,
+        quantity: l.qty,
+        unitCost: l.unitCost
+      }))
+    };
+
+    if (isRevise) {
+      // Revise flow: POST /requisitions/{id}/action/revise
+      await api('/requisitions/' + existingId + '/action/revise', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      toast('Revision saved. You can now resubmit from the requisition list.');
+      setTimeout(() => window.location.href = '/employee/requisition-list.html?filter=mine', 1200);
+    } else {
+      // Create flow: POST /requisitions
+      payload.departmentCode = user.departmentCode || '01';
+      payload.authorityCode = user.authorityCode || 'ZM-09-01';
+      payload.procurementPlanReference = document.getElementById('planRef').value.trim() || null;
+
+      const result = await api('/requisitions', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      toast('Requisition ' + (result.requisitionNumber || '') + ' created as DRAFT');
+      setTimeout(() => window.location.href = '/employee/requisition-detail.html?id=' + result.requisitionId, 800);
+    }
+  } catch (e) {
+    toast('Save failed: ' + e.message, true);
+    btn.disabled = false;
+    btn.textContent = isRevise ? 'Save Revision' : 'Create Requisition';
+  }
+}
+
+document.getElementById('addLineBtn').addEventListener('click', () => addLine());
+document.getElementById('submitBtn').addEventListener('click', submitForm);
+document.getElementById('justification').addEventListener('input', updateSubmitState);
+
+// ---------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+// ---------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------
+init();
+</script>
+</body>
+</html>

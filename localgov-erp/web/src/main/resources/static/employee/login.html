@@ -33,6 +33,7 @@
         .error-msg { color: #DC2626; font-size: 0.85rem; margin-top: 8px; display: none; padding: 8px; background: #FEE2E2; border-radius: 4px; }
         @media (max-width: 768px) { body { flex-direction: column; } .brand-side { padding: 30px; flex: 0 0 auto; } .brand-logo { width: 120px; } .brand-title { font-size: 1.5rem; } }
     </style>
+<script src="/employee/shared/auth.js"></script>
 </head>
 <body>
     <div class="brand-side">
@@ -184,7 +185,7 @@
                 const data = await res.json();
                 
                 if (res.ok && data.token) {
-                    localStorage.setItem('erp_token', data.token);
+                    ERP.setSession(data);
                     window.location.href = '/employee/portal.html';
                 } else {
                     err.textContent = data.message || "Invalid Employee ID or Password.";

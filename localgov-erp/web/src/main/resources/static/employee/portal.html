@@ -105,6 +105,7 @@
         .tab-content.active { display: block; }
         .loading { text-align: center; padding: 40px; color: var(--text-gray); }
     </style>
+<script src="/employee/shared/auth.js"></script>
 </head>
 <body>
     <!-- Top Header -->
@@ -295,7 +296,11 @@
     <div class="footer">POWERED BY YMBJI 2027</div>
 
     <script>
-        const token = localStorage.getItem('erp_token');
+        const erpUser = ERP.currentUser();
+        const token = erpUser ? erpUser.token : null;
+        if (document.getElementById('userChip') && erpUser) {
+            document.getElementById('userChip').textContent = ERP.userChipText(erpUser);
+        }
         if (!token) window.location.href = '/employee/login.html';
 
         let userData = {};

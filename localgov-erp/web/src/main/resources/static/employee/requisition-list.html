@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Requisitions — LocalGov ERP</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; background: #f5f5f0; color: #1a1a1a; }
+
+  header {
+    background: #1a3a1a; color: #fff; padding: 16px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header .nav { display: flex; gap: 16px; align-items: center; }
+  header .nav a { color: #fff; text-decoration: none; font-size: 13px; opacity: 0.85; }
+  header .nav a:hover { opacity: 1; }
+  header .user-chip {
+    background: rgba(255,255,255,0.15); padding: 6px 12px;
+    border-radius: 20px; font-size: 13px;
+  }
+
+  .container { max-width: 1200px; margin: 24px auto; padding: 0 24px; }
+
+  .filter-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid #d0d0d0; }
+  .filter-tab {
+    padding: 12px 20px; font-size: 14px; font-weight: 500;
+    color: #666; cursor: pointer; border: none; background: none;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .filter-tab:hover { color: #1a3a1a; }
+  .filter-tab.active { color: #1a3a1a; border-bottom-color: #1a3a1a; }
+  .filter-tab .count {
+    display: inline-block; margin-left: 6px; padding: 2px 8px;
+    background: #e8f0e8; color: #1a3a1a; border-radius: 10px;
+    font-size: 11px; font-weight: 600;
+  }
+  .filter-tab.active .count { background: #1a3a1a; color: #fff; }
+
+  .toolbar { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }
+  .toolbar input[type=search] {
+    flex: 1; padding: 10px 14px; border: 1px solid #d0d0d0;
+    border-radius: 6px; font-family: inherit; font-size: 14px;
+  }
+  .toolbar input[type=search]:focus {
+    outline: none; border-color: #1a3a1a;
+    box-shadow: 0 0 0 2px rgba(26,58,26,0.1);
+  }
+
+  .btn {
+    padding: 10px 20px; border-radius: 6px; font-family: inherit;
+    font-size: 14px; font-weight: 500; cursor: pointer; border: none;
+    transition: opacity 0.2s;
+  }
+  .btn-primary { background: #1a3a1a; color: #fff; }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-secondary { background: #e8f0e8; color: #1a3a1a; }
+  .btn-secondary:hover { opacity: 0.85; }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .table-wrap { background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; padding: 12px 16px; font-size: 12px; font-weight: 600;
+    text-transform: uppercase; color: #666; background: #f9f9f7;
+    border-bottom: 1px solid #e0e0e0;
+  }
+  td { padding: 14px 16px; font-size: 13px; border-bottom: 1px solid #f0f0f0; }
+  tr:hover td { background: #f9f9f7; }
+  .req-number {
+    font-family: 'SF Mono', Monaco, monospace; font-size: 12px;
+    color: #1a3a1a; font-weight: 500;
+  }
+  .req-number a { color: inherit; text-decoration: none; }
+  .req-number a:hover { text-decoration: underline; }
+  .justification {
+    font-size: 12px; color: #666; max-width: 250px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  .badge {
+    display: inline-block; padding: 3px 8px; border-radius: 12px;
+    font-size: 11px; font-weight: 500; text-transform: uppercase;
+    letter-spacing: 0.3px; white-space: nowrap;
+  }
+  .badge.status-DRAFT { background: #e8e8e8; color: #666; }
+  .badge.status-SUBMITTED { background: #e0e8f0; color: #1a3a5c; }
+  .badge.status-HOD_ENDORSED { background: #e8f0e8; color: #1a3a1a; }
+  .badge.status-FINANCE_CONFIRMED { background: #fff0d0; color: #7a5a20; }
+  .badge.status-AUTHORISED { background: #d8e8d8; color: #1a3a1a; }
+  .badge.status-REFERRED_TO_PROCUREMENT_COMMITTEE { background: #f0e8d0; color: #7a5a20; }
+  .badge.status-COMMITTEE_APPROVED { background: #d8e8d8; color: #1a3a1a; }
+  .badge.status-COMMITTEE_REJECTED { background: #f0e0e0; color: #8b2020; }
+  .badge.status-RETURNED_FOR_REVISION { background: #f0e0e0; color: #8b2020; }
+  .badge.status-REJECTED { background: #f0e0e0; color: #8b2020; }
+
+  .action-buttons { display: flex; gap: 6px; }
+  .actions-cell { white-space: nowrap; }
+
+  .empty { padding: 48px 24px; text-align: center; color: #666; font-size: 14px; }
+  .empty .icon { font-size: 32px; margin-bottom: 12px; opacity: 0.5; }
+  .loading { padding: 24px; text-align: center; color: #666; font-size: 13px; }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; padding: 12px 20px;
+    background: #1a3a1a; color: #fff; border-radius: 8px; font-size: 14px;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 200;
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { background: #8b2020; }
+
+  @media (max-width: 768px) {
+    .justification { max-width: 120px; }
+    th, td { padding: 10px 8px; font-size: 12px; }
+  }
+</style>
+<script src="/employee/shared/auth.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>Requisitions</h1>
+  <div class="nav">
+    <a href="/employee/hod-dashboard.html">← Dashboard</a>
+    <a href="/employee/requisition-new.html" class="btn btn-primary btn-sm">+ New</a>
+    <div class="user-chip" id="userChip">Loading...</div>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="filter-tabs">
+    <button class="filter-tab" data-filter="mine">My Submissions <span class="count" id="countMine">0</span></button>
+    <button class="filter-tab" data-filter="assigned">Assigned to Me <span class="count" id="countAssigned">0</span></button>
+    <button class="filter-tab" data-filter="all">All Visible <span class="count" id="countAll">0</span></button>
+  </div>
+
+  <div class="toolbar">
+    <input type="search" id="searchBox" placeholder="Search by requisition #, department, or justification...">
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Requisition #</th>
+          <th>Department</th>
+          <th>Status</th>
+          <th style="text-align:right">Amount (K)</th>
+          <th>Submitted</th>
+          <th>Justification</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="listBody">
+        <tr><td colspan="7" class="loading">Loading requisitions...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------------------------------------------------------------
+// Auth guard
+// ---------------------------------------------------------------
+const user = ERP.currentUser();
+if (!user) { throw new Error('Not authenticated'); }
+const token = user.token;
+// Compatibility shim: legacy code expects user.role / user.id / user.fullName
+Object.defineProperty(user, 'role', {
+  get: () => user.positionId || (user.roles && user.roles[0]) || 'EMPLOYEE'
+});
+Object.defineProperty(user, 'id', {
+  get: () => user.employeeId
+});
+Object.defineProperty(user, 'fullName', {
+  get: () => user.employeeName
+});
+Object.defineProperty(user, 'departmentCode', {
+  get: () => user.department || '01'
+});
+
+// ---------------------------------------------------------------
+// State
+// ---------------------------------------------------------------
+const params = new URLSearchParams(window.location.search);
+let currentFilter = params.get('filter') || (hasApprovalRole() ? 'assigned' : 'mine');
+let allData = { mine: [], assigned: [], all: [] };
+let searchTerm = '';
+
+function hasApprovalRole() {
+  const role = (user.role || '').toUpperCase();
+  return role.includes('HEAD') || role.includes('DIRECTOR')
+    || role.includes('FINANCE') || role.includes('CONTROLLING_OFFICER')
+    || role.includes('ADMIN') || role.includes('SUPERADMIN');
+}
+
+// ---------------------------------------------------------------
+// API wrapper
+// ---------------------------------------------------------------
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': 'application/json',
+      ...(opts.headers || {})
+    }
+  });
+  if (res.status === 401) {
+    localStorage.clear();
+    window.location.href = '/employee/login.html';
+    return;
+  }
+  if (!res.ok) throw new Error(await res.text());
+  const text = await res.text();
+  return text ? JSON.parse(text) : {};
+}
+
+function toast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ---------------------------------------------------------------
+// Filter tab handling
+// ---------------------------------------------------------------
+document.querySelectorAll('.filter-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    currentFilter = tab.dataset.filter;
+    const url = new URL(window.location);
+    url.searchParams.set('filter', currentFilter);
+    window.history.replaceState({}, '', url);
+    updateTabs();
+    renderList();
+  });
+});
+
+function updateTabs() {
+  document.querySelectorAll('.filter-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.filter === currentFilter));
+  document.getElementById('countMine').textContent = allData.mine.length;
+  document.getElementById('countAssigned').textContent = allData.assigned.length;
+  document.getElementById('countAll').textContent = allData.all.length;
+}
+
+// ---------------------------------------------------------------
+// Load all three datasets (parallel)
+// ---------------------------------------------------------------
+async function loadAll() {
+  const body = document.getElementById('listBody');
+  try {
+    const [mine, assigned, all] = await Promise.all([
+      api('/requisitions/my-submissions').catch(() => []),
+      api('/requisitions/assigned-to-me').catch(() => []),
+      api('/requisitions/visible').catch(() => [])
+    ]);
+    allData.mine = mine || [];
+    allData.assigned = assigned || [];
+    allData.all = all || [];
+    updateTabs();
+    renderList();
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="7" class="empty"><div class="icon">⚠️</div>Failed to load: ' +
+      escapeHtml(e.message) + '</td></tr>';
+    toast('Failed to load requisitions', true);
+  }
+}
+
+// ---------------------------------------------------------------
+// Render current filtered view
+// ---------------------------------------------------------------
+function renderList() {
+  const body = document.getElementById('listBody');
+  let data = allData[currentFilter] || [];
+
+  if (searchTerm) {
+    const q = searchTerm.toLowerCase();
+    data = data.filter(r =>
+      (r.requisition_number || '').toLowerCase().includes(q)
+      || (r.department_code || '').toLowerCase().includes(q)
+      || (r.justification || '').toLowerCase().includes(q)
+    );
+  }
+
+  if (data.length === 0) {
+    const messages = {
+      mine: 'You haven\'t created any requisitions yet. Click "+ New" to start.',
+      assigned: 'No requisitions pending your action. You\'re all caught up.',
+      all: 'No requisitions visible for your role.'
+    };
+    body.innerHTML = '<tr><td colspan="7" class="empty"><div class="icon">📋</div>' +
+      messages[currentFilter] + '</td></tr>';
+    return;
+  }
+
+  body.innerHTML = data.map(r => {
+    const status = r.status || 'DRAFT';
+    const amount = Number(r.total_amount || 0);
+    const canSubmit = status === 'DRAFT' && r.submitter_user_id === user.id;
+    const canReopen = status === 'RETURNED_FOR_REVISION';
+    const canEdit = canReopen;
+
+    const actions = [];
+    actions.push('<a href="/employee/requisition-detail.html?id=' + r.requisition_id + '" class="btn btn-secondary btn-sm">View</a>');
+    if (canSubmit) {
+      actions.push('<button class="btn btn-primary btn-sm" onclick="submitDraft(\'' + r.requisition_id + '\', this)">Submit</button>');
+    }
+    if (canEdit) {
+      actions.push('<button class="btn btn-secondary btn-sm" onclick="reopenReq(\'' + r.requisition_id + '\', this)">Reopen</button>');
+      actions.push('<a href="/employee/requisition-new.html?id=' + r.requisition_id + '&mode=revise" class="btn btn-primary btn-sm">Edit</a>');
+    }
+
+    return `
+      <tr>
+        <td class="req-number"><a href="/employee/requisition-detail.html?id=${r.requisition_id}">${escapeHtml(r.requisition_number || '—')}</a></td>
+        <td>${escapeHtml(r.department_code || '—')}</td>
+        <td><span class="badge status-${status}">${statusLabel(status)}</span></td>
+        <td style="text-align:right">${formatK(amount)}</td>
+        <td>${formatDate(r.created_at)}</td>
+        <td><div class="justification" title="${escapeHtml(r.justification || '')}">${escapeHtml(r.justification || '—')}</div></td>
+        <td class="actions-cell"><div class="action-buttons">${actions.join('')}</div></td>
+      </tr>`;
+  }).join('');
+}
+
+function statusLabel(s) {
+  const labels = {
+    DRAFT: 'Draft',
+    SUBMITTED: 'Submitted',
+    HOD_ENDORSED: 'HoD Endorsed',
+    FINANCE_CONFIRMED: 'Finance Confirmed',
+    AUTHORISED: 'Authorised',
+    REFERRED_TO_PROCUREMENT_COMMITTEE: 'Referred to Committee',
+    COMMITTEE_APPROVED: 'Committee Approved',
+    COMMITTEE_REJECTED: 'Committee Rejected',
+    RETURNED_FOR_REVISION: 'Returned',
+    REJECTED: 'Rejected'
+  };
+  return labels[s] || s;
+}
+
+// ---------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------
+async function submitDraft(id, btn) {
+  if (!confirm('Submit this requisition for approval?\n\nOnce submitted, you cannot edit it until it is returned.')) return;
+  btn.disabled = true;
+  btn.textContent = '...';
+  try {
+    await api('/requisitions/' + id + '/action/submit', { method: 'POST' });
+    toast('Submitted for approval');
+    setTimeout(loadAll, 600);
+  } catch (e) {
+    toast('Submit failed: ' + e.message, true);
+    btn.disabled = false;
+    btn.textContent = 'Submit';
+  }
+}
+
+async function reopenReq(id, btn) {
+  btn.disabled = true;
+  btn.textContent = '...';
+  try {
+    await api('/requisitions/' + id + '/action/reopen', { method: 'POST' });
+    toast('Reopened — you can now edit it');
+    setTimeout(loadAll, 600);
+  } catch (e) {
+    toast('Reopen failed: ' + e.message, true);
+    btn.disabled = false;
+    btn.textContent = 'Reopen';
+  }
+}
+
+// ---------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+function formatK(n) {
+  return Number(n || 0).toLocaleString('en-ZM', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function formatDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+// ---------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------
+document.getElementById('searchBox').addEventListener('input', e => {
+  searchTerm = e.target.value.trim();
+  renderList();
+});
+
+// ---------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------
+updateTabs();
+loadAll();
+</script>
+</body>
+</html>
