@@ -247,24 +247,13 @@ public class ApprovalService {
                 "WHERE requisition_id = ?",
                 newReason, requisitionId);
 
-        // Append-only audit: preserve old reason in note
-        String note = "Old reason: " + (oldReason == null ? "[none]" : oldReason)
-                + " | New reason: " + newReason;
-        String eventHash = sha256(actorId + "|" + requisitionId
-                + "|RETURN_REASON_AMENDED|" + System.currentTimeMillis());
-        jdbc.update(
-                "INSERT INTO requisition_approval_event (" +
-                "  requisition_id, event_type, from_status, to_status, " +
-                "  actor_user_id, actor_role, actor_ip, actor_user_agent, signature_hash" +
-                ") VALUES (?, 'RETURN_REASON_AMENDED', 'RETURNED_FOR_REVISION', " +
-                "          'RETURNED_FOR_REVISION', ?, ?, ?::inet, ?, ?)",
-                requisitionId, actorId, actorRole, actorIp, userAgent, eventHash);
-
-        // Note: the note field is not on the schema — we embed the old reason
-        // in the event's signature_hash derivation for now. V195 will add
-        // a `note` column to requisition_approval_event to preserve this
-        // properly. For now the amendment is audited but the old reason is
-        // only preserved in application logs.
+        // Append-only audit: preserve old reason in note column (added in V195)
+        String note = "old_reason: " + (oldReason == null ? "[none]" : oldReason)
+                + " | new_reason: " + newReason;
+        writeChainedEvent(
+                requisitionId, "RETURN_REASON_AMENDED",
+                "RETURNED_FOR_REVISION", "RETURNED_FOR_REVISION",
+                actorId, actorRole, actorIp, userAgent, note);
 
         Map<String, Object> result = new HashMap<>();
         result.put("requisitionId", requisitionId);
@@ -381,17 +370,10 @@ public class ApprovalService {
                 jdbc.update(updateSql, targetTo, note, requisitionId);
         }
 
-        // Write immutable audit event
-        String eventHash = sha256(actorId + "|" + requisitionId + "|" + eventType +
-                "|" + System.currentTimeMillis());
-        jdbc.update(
-                "INSERT INTO requisition_approval_event (" +
-                "  requisition_id, event_type, from_status, to_status, " +
-                "  actor_user_id, actor_role, actor_ip, actor_user_agent, " +
-                "  signature_hash" +
-                ") VALUES (?, ?, ?, ?, ?, ?, ?::inet, ?, ?)",
+        // Write immutable audit event with hash chain
+        String eventHash = writeChainedEvent(
                 requisitionId, eventType, currentStatus, targetTo,
-                actorId, actorRole, actorIp, userAgent, eventHash);
+                actorId, actorRole, actorIp, userAgent, null);
 
         // If FINANCE_CONFIRMED, record commitment against budget lines
         if ("FINANCE_CONFIRMED".equals(targetTo)) {
@@ -450,6 +432,60 @@ public class ApprovalService {
                     "WHERE line_id = ?",
                     amount, qty, budgetLineId);
         }
+    }
+
+    // ---------------------------------------------------------------
+    // Chained event writer — V195
+    // ---------------------------------------------------------------
+
+    /**
+     * Writes an approval event with a hash that includes the previous
+     * event's hash, forming a chain. First event for a requisition uses
+     * "GENESIS" as the previous value.
+     *
+     * Returns the new event's signature_hash.
+     */
+    private String writeChainedEvent(
+            UUID requisitionId, String eventType, String fromStatus,
+            String toStatus, Long actorId, String actorRole,
+            String actorIp, String userAgent, String note) {
+
+        String previousHash = jdbc.queryForList(
+                "SELECT signature_hash FROM requisition_approval_event " +
+                "WHERE requisition_id = ? ORDER BY event_id DESC LIMIT 1",
+                String.class, requisitionId)
+                .stream().findFirst().orElse("GENESIS");
+
+        // Format the timestamp as ISO-8601 with exactly 3 fractional digits
+        // (milliseconds) and a 'Z' suffix. Must match Postgres's
+        // to_char(..., 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') output EXACTLY —
+        // including '.000' when milliseconds happen to be zero.
+        java.time.Instant now = java.time.Instant.now()
+                .truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        String eventAtStr = java.time.format.DateTimeFormatter
+                .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+                .withZone(java.time.ZoneOffset.UTC)
+                .format(now);
+
+        // Chain: SHA256(actorId | reqId | eventType | eventAt | prevHash)
+        String eventHash = sha256(
+                actorId + "|" + requisitionId + "|" + eventType + "|"
+                + eventAtStr + "|" + previousHash);
+
+        jdbc.update(
+                "INSERT INTO requisition_approval_event (" +
+                "  requisition_id, event_type, from_status, to_status, " +
+                "  actor_user_id, actor_role, actor_ip, actor_user_agent, " +
+                "  signature_hash, previous_event_hash, note, event_at" +
+                ") VALUES (?, ?, ?, ?, ?, ?, ?::inet, ?, ?, ?, ?, ?::timestamptz)",
+                requisitionId, eventType, fromStatus, toStatus,
+                actorId, actorRole, actorIp, userAgent,
+                eventHash,
+                "GENESIS".equals(previousHash) ? null : previousHash,
+                note,
+                eventAtStr);
+
+        return eventHash;
     }
 
     // ---------------------------------------------------------------
